@@ -1,0 +1,4 @@
+card_name,card_type,rules_text,cost,power,defense,art_path,class_type,artist,year
+Shadow Strike,Action - Attack,"Deal 5 damage to target hero. If this attack hits, draw a card.",2,5,3,images/shadow_strike.jpg,ninja,John Doe,2024
+Warrior's Shield,Defense Reaction,Prevent the next 4 damage that would be dealt to your hero this turn.,1,0,4,images/warrior_shield.jpg,warrior,Jane Smith,2024
+Frostbite,Action - Attack,"If this attack hits, freeze target hero (their next action costs 1 more).",3,6,2,images/frostbite.jpg,wizard,Alex Chen,2024

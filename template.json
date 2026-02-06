@@ -1,0 +1,222 @@
+{
+    "name": "",
+    "width": 1500,
+    "height": 2100,
+    "corners": 60,
+    "dependencies": {
+        "extensions": [
+            "symbol",
+            "coreTextCode"
+        ],
+        "template": {
+            "type": "url",
+            "value": "fab/fleshAndBlood.cct"
+        }
+    },
+    "data": {
+        "type": "group",
+        "name": "Card",
+        "children": [
+            {
+                "type": "group",
+                "tags": [
+                    "new-image-group"
+                ],
+                "name": "Images",
+                "children": [
+                    {
+                        "type": "image",
+                        "tags": [
+                            "editable",
+                            "draggable"
+                        ],
+                        "name": "Art",
+                        "src": "",
+                        "z": -100,
+                        "bounds": {
+                            "x": 130,
+                            "y": 264,
+                            "width": 1240,
+                            "height": 1007,
+                            "type": "fill",
+                            "horizontal": "center",
+                            "vertical": "center"
+                        },
+                        "x": 0,
+                        "y": 0,
+                        "width": 1500,
+                        "height": 2100
+                    },
+                    {
+                        "type": "image",
+                        "z": 100,
+                        "name": "Ninja Class",
+                        "src": "fab/frame/classes/ninja.png",
+                        "thumb": "fab/frame/classes/thumb-ninja.png",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1500,
+                        "height": 2100
+                    }
+                ],
+                "x": 0,
+                "y": 0,
+                "width": 1500,
+                "height": 2100
+            },
+            {
+                "type": "group",
+                "tags": [
+                    "new-text-group"
+                ],
+                "name": "Text",
+                "children": [
+                    {
+                        "type": "text",
+                        "name": "Title",
+                        "tags": [
+                            "name",
+                            "editable"
+                        ],
+                        "text": "",
+                        "font": "amanda",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "size": 85,
+                        "x": 285,
+                        "y": 144,
+                        "width": 930,
+                        "height": 85,
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Type",
+                        "tags": [
+                            "editable"
+                        ],
+                        "text": "",
+                        "font": "amanda",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "size": 59,
+                        "x": 360,
+                        "y": 1887,
+                        "width": 780,
+                        "height": 59,
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Rules",
+                        "tags": [
+                            "editable"
+                        ],
+                        "text": "",
+                        "font": "palatino",
+                        "size": 59,
+                        "x": 180,
+                        "y": 1300,
+                        "width": 1140,
+                        "height": 500,
+                        "verticalAlign": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Cost",
+                        "tags": [
+                            "editable"
+                        ],
+                        "text": "",
+                        "font": "palatino",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "size": 65,
+                        "x": 1290,
+                        "y": 149,
+                        "width": 80,
+                        "height": 65,
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Left Stat",
+                        "tags": [
+                            "editable"
+                        ],
+                        "text": "",
+                        "font": "palatino",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "size": 70,
+                        "x": 243,
+                        "y": 1925,
+                        "width": 80,
+                        "height": 70,
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Right Stat",
+                        "tags": [
+                            "editable"
+                        ],
+                        "text": "",
+                        "font": "palatino",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "size": 70,
+                        "x": 1177,
+                        "y": 1925,
+                        "width": 80,
+                        "height": 70,
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Collector Info",
+                        "tags": [
+                            "editable"
+                        ],
+                        "text": "ArtistCreditHere © {year} Legend Story Studios",
+                        "font": "montserrat",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "color": "#ffffff",
+                        "size": 30,
+                        "x": 375,
+                        "y": 1993,
+                        "width": 750,
+                        "height": 30,
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "name": "Disclaimer",
+                        "text": "UNOFFICIAL CARD - NOT FOR SALE",
+                        "font": "montserrat",
+                        "oneLine": true,
+                        "verticalAlign": "center",
+                        "color": "#ffffff",
+                        "size": 28,
+                        "x": 375,
+                        "y": 2035,
+                        "width": 750,
+                        "height": 28,
+                        "align": "center"
+                    }
+                ],
+                "x": 0,
+                "y": 0,
+                "width": 1500,
+                "height": 2100
+            }
+        ],
+        "x": 0,
+        "y": 0,
+        "width": 1500,
+        "height": 2100
+    },
+    "marginX": 0,
+    "marginY": 0
+}
