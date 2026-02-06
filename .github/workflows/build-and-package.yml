@@ -70,7 +70,6 @@ jobs:
     - name: Build executable with PyInstaller
       run: |
         pyinstaller --name=CardGener --onefile --windowed --icon=icon.ico gui.py || pyinstaller --name=CardGener --onefile --windowed gui.py
-      continue-on-error: true
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
