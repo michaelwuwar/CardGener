@@ -1,2 +1,18 @@
+# Core dependencies
 pandas>=2.0.0
 openpyxl>=3.1.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Web automation (optional, for CardConjurer import)
+selenium>=4.15.0
+
+# HTTP requests (for AI image generation)
+requests>=2.31.0
+
+# GUI (built-in with Python, no need to install)
+# tkinter is included with standard Python installation
+
+# Testing (optional)
+pytest>=7.4.0

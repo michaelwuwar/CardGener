@@ -1,0 +1,85 @@
+{
+  "name": "card-generator-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for CardGener - Generate card game cards from natural language",
+  "author": "michaelwuwar",
+  "license": "MIT",
+  "repository": "https://github.com/michaelwuwar/CardGener",
+  "main": "mcp_server.py",
+  "type": "stdio",
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "installation": {
+    "requirements": "requirements.txt",
+    "python_version": ">=3.8"
+  },
+  "configuration": {
+    "template_path": {
+      "type": "string",
+      "description": "Path to the card template JSON file",
+      "default": "template.json"
+    }
+  },
+  "tools": [
+    {
+      "name": "generate_card",
+      "description": "Generate a single card from parameters",
+      "category": "card_generation"
+    },
+    {
+      "name": "generate_cards_batch",
+      "description": "Generate multiple cards from a list of card data",
+      "category": "card_generation"
+    },
+    {
+      "name": "parse_natural_language",
+      "description": "Parse natural language description into card data",
+      "category": "ai_parsing"
+    }
+  ],
+  "examples": [
+    {
+      "description": "Generate a single ninja card",
+      "tool": "generate_card",
+      "input": {
+        "card_name": "Shadow Strike",
+        "card_type": "Action - Attack",
+        "rules_text": "Deal 5 damage to target hero. If this attack hits, draw a card.",
+        "cost": "2",
+        "power": "5",
+        "defense": "3",
+        "class_type": "ninja",
+        "artist": "John Doe",
+        "year": "2024"
+      }
+    },
+    {
+      "description": "Parse natural language to create a card",
+      "tool": "parse_natural_language",
+      "input": {
+        "description": "Create a warrior card called Iron Shield that costs 1 and has 4 defense. It prevents the next 4 damage."
+      }
+    }
+  ],
+  "usage": {
+    "claude_desktop": {
+      "config_path": "~/Library/Application Support/Claude/claude_desktop_config.json",
+      "config_example": {
+        "mcpServers": {
+          "card-generator": {
+            "command": "python",
+            "args": ["/absolute/path/to/CardGener/mcp_server.py"],
+            "env": {}
+          }
+        }
+      }
+    },
+    "command_line": {
+      "start": "python mcp_server.py",
+      "test": "python mcp_server.py --test"
+    }
+  }
+}
