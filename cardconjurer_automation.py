@@ -43,11 +43,14 @@ class CardConjurerAutomation:
         # 设置下载目录
         os.makedirs(self.download_dir, exist_ok=True)
         prefs = {
-            "download.default_directory": self.download_dir,
+            "download.default_directory": os.path.abspath(self.download_dir),
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
             "safebrowsing.enabled": True
         }
+        # Improve handling on some platforms
+        prefs.setdefault("profile.default_content_settings.popups", 0)
+        prefs.setdefault("safebrowsing.disable_download_protection", True)
         chrome_options.add_experimental_option("prefs", prefs)
 
         # 其他设置
@@ -78,40 +81,114 @@ class CardConjurerAutomation:
             with open(json_path, 'r', encoding='utf-8') as f:
                 json_content = f.read()
 
-            # 查找并点击"Load"按钮
-            # 注意: 这些选择器可能需要根据实际网站结构调整
+            # 页面使用自定义的 drag-drop-upload 组件，包含一个文件输入框
+            # 尝试通过 input[type=file] 上传 JSON 文件（优先针对 filetext="Card" 的上传器）
             try:
-                load_button = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Load')]"))
-                )
-                load_button.click()
-                time.sleep(1)
-            except:
-                print("⚠️ 未找到Load按钮，尝试其他方法...")
+                wrapper = None
+                try:
+                    # 仅定位特定上传组件，不执行点击
+                    wrapper = wait.until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, 'drag-drop-upload[filetext="Card"]'))
+                    )
+                except Exception:
+                    # 回退到通用上传器选择器（仅定位，不点击）
+                    try:
+                        wrapper = wait.until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "drag-drop-upload, .file-upload, [class*='file-upload']"))
+                        )
+                    except Exception:
+                        wrapper = None
 
-            # 查找JSON输入框并粘贴内容
-            try:
-                json_input = wait.until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "textarea, input[type='text']"))
-                )
-                json_input.clear()
-                json_input.send_keys(json_content)
-                time.sleep(1)
-            except:
-                # 尝试使用JavaScript注入
-                script = f"document.querySelector('textarea').value = `{json_content}`;"
-                self.driver.execute_script(script)
-                time.sleep(1)
+                abs_path = os.path.abspath(json_path)
+                file_input = None
+                if wrapper:
+                    try:
+                        file_input = wrapper.find_element(By.CSS_SELECTOR, "input[type='file']")
+                    except Exception:
+                        file_input = None
+                if file_input is None:
+                    file_input = wait.until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
+                    )
 
-            # 点击确认按钮
+                file_input.send_keys(abs_path)
+                time.sleep(0.5)
+
+                # 触发组件的 change/drop 事件以模拟拖拽，让组件识别已选文件
+                try:
+                    if wrapper:
+                        try:
+                            self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", wrapper)
+                        except Exception:
+                            pass
+                        try:
+                            self.driver.execute_script(
+                                "var dt=new DataTransfer(); for(var i=0;i<arguments[0].files.length;i++){dt.items.add(arguments[0].files[i]);} arguments[1].dispatchEvent(new DragEvent('drop',{dataTransfer:dt,bubbles:true}));",
+                                file_input,
+                                wrapper,
+                            )
+                        except Exception:
+                            try:
+                                self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", file_input)
+                            except Exception:
+                                pass
+                    else:
+                        script = '''
+var drop = document.querySelector(arguments[0]);
+var input = document.querySelector("input[type=file]");
+if(!input) return 'no-input';
+var dt = new DataTransfer();
+for(var i=0;i<input.files.length;i++){ dt.items.add(input.files[i]); }
+if(drop){
+  try{ drop.dispatchEvent(new Event('change', {bubbles:true})); }catch(e){}
+  try{ drop.dispatchEvent(new DragEvent('drop', {dataTransfer: dt, bubbles:true})); }catch(e){}
+  return 'dropped';
+}
+return 'no-drop';
+'''
+                        try:
+                            self.driver.execute_script(script, "drag-drop-upload, .file-upload, [class*='file-upload']")
+                        except Exception:
+                            try:
+                                self.driver.execute_script("arguments[0].dispatchEvent(new Event('change', {bubbles:true}));", file_input)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                time.sleep(0.5)
+            except Exception as e:
+                print(f"⚠️ 未能通过 file input 上传：{e}，尝试回退方案...")
+                # 回退到 textarea 注入（兼容旧实现）
+                try:
+                    json_input = wait.until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "textarea, input[type='text']"))
+                    )
+                    json_input.clear()
+                    json_input.send_keys(json_content)
+                    time.sleep(1)
+                except Exception as e2:
+                    # 最后一招：使用 JS 注入到 textarea（如果存在）
+                    try:
+                        script = f"var ta = document.querySelector('textarea'); if(ta) ta.value = `{json_content}`;"
+                        self.driver.execute_script(script)
+                        time.sleep(1)
+                    except Exception as e3:
+                        print(f"❌ 注入 JSON 失败: {e3}")
+                        return False
+
+            # 有些页面在文件选择后需要点击确认或 Load 按钮，尝试点击常见的按钮
             try:
                 confirm_button = wait.until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'OK') or contains(text(), 'Confirm')]"))
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//button[contains(., 'Load') or contains(., 'OK') or contains(., 'Confirm')]")
+                    )
                 )
                 confirm_button.click()
                 time.sleep(2)
-            except:
-                print("⚠️ 未找到确认按钮")
+            except Exception:
+                # 如果没有确认按钮，也可能已自动加载
+                pass
 
             return True
 
@@ -132,28 +209,96 @@ class CardConjurerAutomation:
         try:
             wait = WebDriverWait(self.driver, 10)
 
-            # 查找下载按钮
-            # 注意: 选择器需要根据实际网站结构调整
-            download_button = wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Download') or contains(text(), 'Export')]"))
-            )
-            download_button.click()
+            # 查找下载/保存按钮，页面使用 Material 按钮，文本为 Save Image
+            try:
+                download_button = wait.until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//button[.//mat-icon[contains(normalize-space(.),'download')] or contains(normalize-space(.),'Save Image') or contains(., 'Save Image')]")
+                    )
+                )
+                download_button.click()
+            except Exception:
+                # 回退：旧站点可能使用 'Download' 或 'Export' 文本
+                try:
+                    download_button = wait.until(
+                        EC.element_to_be_clickable(
+                            (By.XPATH, "//button[contains(., 'Download') or contains(., 'Export')]")
+                        )
+                    )
+                    download_button.click()
+                except Exception as e:
+                    print(f"❌ 未找到下载按钮: {e}")
+                    return False
 
-            # 等待下载完成
-            time.sleep(3)
+            # 等待并查找下载完成的文件（优先在 self.download_dir，其次尝试系统默认 Downloads）
+            wait_time = 15
+            poll_interval = 0.5
+            end_time = time.time() + wait_time
 
-            # 重命名下载的文件
-            # 这部分逻辑需要根据实际下载文件名进行调整
-            download_files = sorted(Path(self.download_dir).glob("*"), key=os.path.getmtime, reverse=True)
-            if download_files:
-                latest_file = download_files[0]
-                new_name = Path(self.download_dir) / f"{output_name}.png"
-                if latest_file.exists():
-                    latest_file.rename(new_name)
-                    print(f"✅ 已下载: {new_name}")
-                    return True
+            def find_new_file(search_dir, since_ts):
+                exts = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
+                candidates = []
+                try:
+                    for p in Path(search_dir).glob('*'):
+                        try:
+                            if p.is_file() and p.suffix.lower() in exts and os.path.getmtime(p) >= since_ts:
+                                candidates.append(p)
+                        except Exception:
+                            continue
+                except Exception:
+                    return None
+                if not candidates:
+                    return None
+                candidates.sort(key=os.path.getmtime, reverse=True)
+                return candidates[0]
 
-            return False
+            # 记录点击前时间戳，寻找之后产生的新文件
+            since_ts = time.time() - 1
+
+            latest_file = None
+            while time.time() < end_time and latest_file is None:
+                # 优先检查目标下载目录
+                latest_file = find_new_file(self.download_dir, since_ts)
+                if latest_file:
+                    break
+                # 回退检查当前用户 Downloads 目录（Windows 常用位置）
+                try:
+                    user_download = os.path.join(os.path.expanduser('~'), 'Downloads')
+                    latest_file = find_new_file(user_download, since_ts)
+                    if latest_file:
+                        break
+                except Exception:
+                    pass
+
+                time.sleep(poll_interval)
+
+            if not latest_file:
+                print("❌ 未检测到下载的图片文件")
+                return False
+
+            # 确保目标目录存在
+            os.makedirs(self.download_dir, exist_ok=True)
+            new_name = Path(self.download_dir) / f"{output_name}{latest_file.suffix}"
+            try:
+                # 如果源路径与目标路径相同，直接返回成功
+                try:
+                    if latest_file.resolve() == new_name.resolve():
+                        print(f"✅ 已下载（原地）: {new_name}")
+                        return True
+                except Exception:
+                    # resolve 可能失败于不存在的文件，继续处理
+                    pass
+
+                # 如果目标已存在且不是源文件，先删除目标再移动
+                if new_name.exists():
+                    new_name.unlink()
+
+                latest_file.replace(new_name)
+                print(f"✅ 已下载并移动: {new_name}")
+                return True
+            except Exception as e:
+                print(f"❌ 重命名/移动下载文件失败: {e}")
+                return False
 
         except Exception as e:
             print(f"❌ 下载图片失败: {e}")

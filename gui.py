@@ -12,6 +12,7 @@ import sys
 import threading
 from pathlib import Path
 import json
+import shutil
 
 
 class CardGeneratorGUI:
@@ -308,7 +309,66 @@ class CardGeneratorGUI:
 
     def run_import(self):
         """运行CardConjurer导入"""
-        messagebox.showinfo("提示", "CardConjurer自动化功能需要安装Selenium和Chrome驱动。\n此功能为实验性功能。")
+        if self.is_processing:
+            messagebox.showwarning("警告", "已有任务正在运行")
+            return
+
+        json_dir = self.import_json_dir_var.get()
+        download_dir = self.import_download_var.get()
+        headless = self.import_headless_var.get()
+
+        # 前置检查: 确保 selenium 可用并提示 chromedriver
+        try:
+            import selenium  # type: ignore
+        except Exception:
+            messagebox.showerror("错误", "未检测到 selenium 库。请运行: pip install selenium\n或参阅项目文档安装依赖。")
+            return
+
+        if shutil.which('chromedriver') is None:
+            proceed = messagebox.askyesno("提示", "未在 PATH 中找到 chromedriver，Selenium 可能无法启动。是否继续尝试？")
+            if not proceed:
+                return
+
+        if not json_dir or not os.path.exists(json_dir):
+            messagebox.showerror("错误", "请选择有效的JSON目录")
+            return
+
+        # 收集所有 json 文件
+        json_paths = list(Path(json_dir).glob("*.json"))
+        if not json_paths:
+            messagebox.showerror("错误", f"未在目录中找到JSON文件: {json_dir}")
+            return
+
+        self.is_processing = True
+        self.status_bar.config(text="正在导入CardConjurer...")
+        self.import_log.delete(1.0, tk.END)
+
+        def task():
+            try:
+                from cardconjurer_automation import CardConjurerAutomation
+
+                self.log_message(self.import_log, f"开始导入 {len(json_paths)} 个JSON 到 CardConjurer\n")
+                self.log_message(self.import_log, f"下载目录: {download_dir}\n")
+                self.log_message(self.import_log, f"无头模式: {headless}\n")
+
+                automation = CardConjurerAutomation(headless=headless, download_dir=download_dir)
+                # batch_import_and_download 接受路径列表
+                files = [str(p) for p in json_paths]
+                success_count = automation.batch_import_and_download(files)
+
+                self.log_message(self.import_log, f"\n✅ 完成: 成功处理 {success_count}/{len(files)} 张卡牌\n")
+                self.status_bar.config(text="导入完成")
+                messagebox.showinfo("成功", f"导入完成，成功处理 {success_count}/{len(files)} 张卡牌")
+
+            except Exception as e:
+                self.log_message(self.import_log, f"\n❌ 错误: {str(e)}\n")
+                self.status_bar.config(text="导入失败")
+                messagebox.showerror("错误", f"导入失败: {str(e)}")
+
+            finally:
+                self.is_processing = False
+
+        threading.Thread(target=task, daemon=True).start()
 
     def run_stitch(self):
         """运行图片拼接"""
