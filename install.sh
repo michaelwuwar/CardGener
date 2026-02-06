@@ -8,7 +8,7 @@ echo ""
 
 # 检查Python版本
 echo "检查Python版本..."
-python_version=$(python3 --version 2>&1 | grep -oP '\d+\.\d+' | head -1)
+python_version=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
 if [ -z "$python_version" ]; then
     echo "❌ 未找到Python 3。请先安装Python 3.8或更高版本。"
     exit 1
