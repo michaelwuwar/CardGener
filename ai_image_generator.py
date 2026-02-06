@@ -42,7 +42,7 @@ class AIImageGenerator:
         """
         try:
             # Pollinations API endpoint
-            url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}"
+            url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt, safe='')}"
             params = {
                 "width": width,
                 "height": height,
