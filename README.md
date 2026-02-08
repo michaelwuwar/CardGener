@@ -9,16 +9,21 @@
 - ✅ 支持多种职业框架（ninja, warrior, wizard等）
 - ✅ 灵活的字段映射系统
 - ✅ 中文支持
+- 🤖 **MCP服务器集成** - 与AI模型无缝协作，AI自动生成所有参数
 
 ## 目录结构
 
 ```
 CardGener/
 ├── card_generator.py          # 主程序
+├── simple_generator.py        # 简化版生成器（无需pandas）
+├── mcp_server.py              # MCP服务器（AI集成）
 ├── template.json              # JSON模板文件
 ├── requirements.txt           # Python依赖
 ├── create_sample_excel.py     # 创建示例Excel脚本
-├── sample_cards.xlsx          # 示例Excel文件（运行脚本后生成）
+├── mcp_config.json            # MCP服务器配置
+├── MCP_USAGE_GUIDE.md        # MCP使用指南
+├── test_mcp_server.py         # MCP测试脚本
 └── README.md                  # 本文件
 ```
 
@@ -160,6 +165,44 @@ A: 理论上支持，只需替换`template.json`为目标游戏的模板即可�
 - **Python 3.8+**
 - **pandas** - Excel数据处理
 - **openpyxl** - Excel文件读写
+- **mcp** - Model Context Protocol SDK（AI集成）
+
+## MCP服务器（AI集成）
+
+CardGener现在支持通过MCP (Model Context Protocol) 与AI模型集成！
+
+### 快速开始
+
+1. **安装MCP依赖**：
+```bash
+pip install -r requirements.txt
+```
+
+2. **启动MCP服务器**：
+```bash
+python mcp_server.py
+```
+
+3. **与Claude Desktop集成**：
+详细配置请参见 [MCP_USAGE_GUIDE.md](MCP_USAGE_GUIDE.md)
+
+### MCP功能
+
+- 🎯 **generate_card** - AI生成单张卡牌，所有参数由AI提供
+- 📦 **generate_cards_batch** - AI批量生成多张卡牌
+- 💬 **parse_natural_language** - AI解析自然语言描述
+
+### 示例对话
+
+与Claude Desktop对话：
+> "请生成一张忍者攻击卡，名为'影袭'，费用2，造成5点伤害，防御3"
+
+Claude会自动：
+1. 理解需求并生成所有必需参数
+2. 调用MCP工具生成卡牌
+3. 返回生成的JSON文件路径
+
+详细文档：[MCP_USAGE_GUIDE.md](MCP_USAGE_GUIDE.md)
 
 ## 许可证
 

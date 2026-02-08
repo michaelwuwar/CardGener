@@ -1,85 +1,150 @@
 {
-  "name": "card-generator-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for CardGener - Generate card game cards from natural language",
-  "author": "michaelwuwar",
-  "license": "MIT",
-  "repository": "https://github.com/michaelwuwar/CardGener",
-  "main": "mcp_server.py",
-  "type": "stdio",
-  "capabilities": {
-    "tools": true,
-    "resources": false,
-    "prompts": false
-  },
-  "installation": {
-    "requirements": "requirements.txt",
-    "python_version": ">=3.8"
-  },
-  "configuration": {
-    "template_path": {
-      "type": "string",
-      "description": "Path to the card template JSON file",
-      "default": "template.json"
+  "mcpServers": {
+    "cardgener": {
+      "command": "python",
+      "args": [
+        "mcp_server.py"
+      ],
+      "cwd": "/path/to/CardGener",
+      "env": {},
+      "description": "CardGener MCP Server - AI-powered card generation with all parameters provided by AI"
     }
   },
-  "tools": [
-    {
-      "name": "generate_card",
-      "description": "Generate a single card from parameters",
-      "category": "card_generation"
-    },
-    {
-      "name": "generate_cards_batch",
-      "description": "Generate multiple cards from a list of card data",
-      "category": "card_generation"
-    },
-    {
-      "name": "parse_natural_language",
-      "description": "Parse natural language description into card data",
-      "category": "ai_parsing"
-    }
-  ],
-  "examples": [
-    {
-      "description": "Generate a single ninja card",
-      "tool": "generate_card",
-      "input": {
+  "tools": {
+    "generate_card": {
+      "description": "Generate a single card with AI-provided parameters",
+      "required_parameters": [
+        "card_name",
+        "card_type",
+        "rules_text",
+        "cost",
+        "power",
+        "defense",
+        "class_type"
+      ],
+      "optional_parameters": [
+        "art_path",
+        "artist",
+        "year",
+        "output_path",
+        "template_path"
+      ],
+      "example": {
         "card_name": "Shadow Strike",
         "card_type": "Action - Attack",
-        "rules_text": "Deal 5 damage to target hero. If this attack hits, draw a card.",
+        "rules_text": "Deal 5 damage to target hero. Go again.",
         "cost": "2",
         "power": "5",
         "defense": "3",
+        "art_path": "images/shadow_strike.jpg",
         "class_type": "ninja",
         "artist": "John Doe",
-        "year": "2024"
+        "year": "2024",
+        "output_path": "output"
       }
     },
-    {
-      "description": "Parse natural language to create a card",
-      "tool": "parse_natural_language",
-      "input": {
-        "description": "Create a warrior card called Iron Shield that costs 1 and has 4 defense. It prevents the next 4 damage."
+    "generate_cards_batch": {
+      "description": "Generate multiple cards in batch with AI-provided parameters",
+      "required_parameters": [
+        "cards"
+      ],
+      "optional_parameters": [
+        "output_path",
+        "template_path"
+      ],
+      "example": {
+        "cards": [
+          {
+            "card_name": "Ninja Strike",
+            "card_type": "Action - Attack",
+            "rules_text": "Deal 5 damage.",
+            "cost": "2",
+            "power": "5",
+            "defense": "3",
+            "class_type": "ninja"
+          },
+          {
+            "card_name": "Warrior's Shield",
+            "card_type": "Action - Defense",
+            "rules_text": "Prevent 4 damage.",
+            "cost": "1",
+            "power": "0",
+            "defense": "4",
+            "class_type": "warrior"
+          }
+        ],
+        "output_path": "output"
+      }
+    },
+    "parse_natural_language": {
+      "description": "Parse natural language description into structured card parameters",
+      "required_parameters": [
+        "description"
+      ],
+      "optional_parameters": [
+        "context"
+      ],
+      "example": {
+        "description": "Create a ninja attack card called Shadow Strike that costs 2 resources, deals 5 damage with 3 defense",
+        "context": {
+          "game_type": "Flesh and Blood",
+          "card_set": "Custom",
+          "rarity": "Common"
+        }
       }
     }
-  ],
-  "usage": {
+  },
+  "integration": {
     "claude_desktop": {
-      "config_path": "~/Library/Application Support/Claude/claude_desktop_config.json",
-      "config_example": {
+      "config_location": "~/.config/Claude/claude_desktop_config.json (Linux/Mac) or %APPDATA%\\Claude\\claude_desktop_config.json (Windows)",
+      "setup_instructions": [
+        "1. Open Claude Desktop configuration file",
+        "2. Add CardGener MCP server configuration",
+        "3. Update 'cwd' path to your CardGener directory",
+        "4. Restart Claude Desktop",
+        "5. Verify tools are available"
+      ],
+      "config_snippet": {
         "mcpServers": {
-          "card-generator": {
+          "cardgener": {
             "command": "python",
-            "args": ["/absolute/path/to/CardGener/mcp_server.py"],
-            "env": {}
+            "args": [
+              "mcp_server.py"
+            ],
+            "cwd": "/absolute/path/to/CardGener"
           }
         }
       }
+    }
+  },
+  "supported_classes": [
+    "ninja",
+    "warrior",
+    "wizard",
+    "ranger",
+    "guardian",
+    "brute",
+    "mechanologist",
+    "runeblade",
+    "merchant",
+    "illusionist"
+  ],
+  "card_fields": {
+    "required": {
+      "card_name": "Card title/name",
+      "card_type": "Card type (e.g., 'Action - Attack', 'Hero', 'Equipment')",
+      "rules_text": "Card rules and effect text",
+      "cost": "Resource cost",
+      "power": "Attack power (left stat)",
+      "defense": "Defense value (right stat)",
+      "class_type": "Character class"
     },
-    "command_line": {
-      "start": "python mcp_server.py",
-      "test": "python mcp_server.py --test"
+    "optional": {
+      "art_path": "Path or URL to card artwork",
+      "artist": "Artist name for credits",
+      "year": "Copyright year",
+      "output_path": "Output directory",
+      "template_path": "Custom template file path"
     }
   }
 }
