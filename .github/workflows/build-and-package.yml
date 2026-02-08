@@ -94,6 +94,72 @@ jobs:
           dist/*
         if-no-files-found: warn
 
+  create_tag:
+    needs: package
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: true
+        fetch-depth: 0
+
+    - name: Read VERSION
+      id: read_version
+      run: |
+        if [ -f VERSION ]; then
+          echo "VERSION=$(cat VERSION)" >> $GITHUB_ENV
+        else
+          echo "VERSION=" >> $GITHUB_ENV
+        fi
+
+    - name: Fetch tags
+      run: git fetch --tags
+
+    - name: Get latest tag
+      id: get_latest
+      run: |
+        if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+          echo "latest=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
+        else
+          echo "latest=" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Read old VERSION from latest tag
+      run: |
+        if [ -n "${{ steps.get_latest.outputs.latest }}" ]; then
+          git show "${{ steps.get_latest.outputs.latest }}:VERSION" > /tmp/old_version 2>/dev/null || true
+          if [ -f /tmp/old_version ]; then
+            echo "OLD_VERSION=$(cat /tmp/old_version)" >> $GITHUB_ENV
+          else
+            echo "OLD_VERSION=" >> $GITHUB_ENV
+          fi
+        else
+          echo "OLD_VERSION=" >> $GITHUB_ENV
+        fi
+
+    - name: Create and push tag if VERSION changed
+      run: |
+        if [ -z "${{ env.VERSION }}" ]; then
+          echo "No VERSION file, skipping"
+          exit 0
+        fi
+        if [ "${{ env.VERSION }}" != "${{ env.OLD_VERSION }}" ]; then
+          TAG="v${{ env.VERSION }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Created tag $TAG"
+        else
+          echo "VERSION not changed (${{ env.VERSION }}), skipping"
+        fi
+
   release:
     needs: package
     runs-on: ubuntu-latest
