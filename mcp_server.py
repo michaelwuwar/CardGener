@@ -288,11 +288,19 @@ class CardGeneratorMCPServer:
 
             result = self.handle_tool_call(tool_name, arguments)
 
+            # 返回两种表示：
+            # 1) 结构化的 tool_result（便于 GitHub Copilot / 其它客户端直接解析）
+            # 2) 原始文本字符串（向后兼容现有实现）
             return {
                 "jsonrpc": "2.0",
                 "id": request.get("id"),
                 "result": {
                     "content": [
+                        {
+                            "type": "tool_result",
+                            "tool": tool_name,
+                            "data": result
+                        },
                         {
                             "type": "text",
                             "text": json.dumps(result, ensure_ascii=False)

@@ -53,7 +53,11 @@ class ImageStitcher:
         cols: int,
         output_path: str,
         spacing: int = 0,
-        background_color: Tuple[int, int, int] = (255, 255, 255)
+        background_color: Tuple[int, int, int] = (255, 255, 255),
+        # 输出缩放: 预设 '4k','2k','1080p','720p' 或 None
+        preset: Optional[str] = None,
+        # 自定义目标宽度（像素），如果同时传入 preset 则以 preset 为准
+        target_width: Optional[int] = None,
     ) -> bool:
         """
         拼接图片成网格
@@ -70,7 +74,7 @@ class ImageStitcher:
             是否成功拼接
         """
         try:
-            # 加载图片
+            # 加载图片（每张按实例的card_width/card_height调整）
             images = self.load_images(image_paths)
 
             if not images:
@@ -104,7 +108,33 @@ class ImageStitcher:
                     canvas.paste(blank, (x, y))
 
             # 保存图片
-            canvas.save(output_path, quality=95)
+            # 如果需要预设或自定义目标宽度，则对最终画布进行缩放
+            preset_map = {
+                '4k': 3840,
+                '2k': 2560,
+                '1080p': 1920,
+                '720p': 1280,
+            }
+
+            final_canvas = canvas
+            target_w = None
+            if preset and preset.lower() in preset_map:
+                target_w = preset_map[preset.lower()]
+            elif target_width and isinstance(target_width, int) and target_width > 0:
+                target_w = target_width
+
+            if target_w and canvas_width > target_w:
+                # 保持纵横比进行缩放
+                new_h = int(canvas_height * (target_w / canvas_width))
+                final_canvas = canvas.resize((target_w, new_h), Image.Resampling.LANCZOS)
+                canvas_width, canvas_height = final_canvas.size
+
+            # 确保输出目录存在
+            out_dir = os.path.dirname(output_path)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+
+            final_canvas.save(output_path, quality=95)
             print(f"✅ 拼接完成: {output_path}")
             print(f"   尺寸: {canvas_width}×{canvas_height} 像素")
             print(f"   网格: {rows}×{cols}")
@@ -120,7 +150,12 @@ class ImageStitcher:
         image_dir: str,
         output_path: str,
         max_cols: int = 10,
-        spacing: int = 0
+        spacing: int = 0,
+        # 每页最大卡牌数，None 表示使用 cols*7 的默认TTS样式（70）
+        cards_per_sheet: Optional[int] = None,
+        # 输出缩放选项，传递给 stitch_images
+        preset: Optional[str] = None,
+        target_width: Optional[int] = None,
     ) -> bool:
         """
         自动拼接目录中的所有图片
@@ -148,21 +183,64 @@ class ImageStitcher:
         # 排序确保顺序一致
         image_paths.sort()
 
-        # 计算行列数
         total = len(image_paths)
-        cols = min(total, max_cols)
-        rows = (total + cols - 1) // cols
 
-        print(f"找到 {total} 张图片，将拼接为 {rows}×{cols} 网格")
+        # 如果 output_path 指定为目录或以分隔符结尾，则作为输出目录
+        if output_path.endswith(os.path.sep) or os.path.isdir(output_path):
+            output_dir = output_path
+        else:
+            # 如果是文件路径，使用其父目录作为输出目录
+            output_dir = os.path.dirname(output_path) or '.'
 
-        return self.stitch_images(image_paths, rows, cols, output_path, spacing)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 每页卡牌数默认使用 TTS 推荐（10 列 × 7 行 = 70）
+        if cards_per_sheet is None:
+            cards_per_sheet = max_cols * 7
+
+        # 使用 create_tabletop_simulator_deck 分批生成并保存
+        generated = self.create_tabletop_simulator_deck(
+            image_paths,
+            output_dir,
+            cards_per_sheet=cards_per_sheet,
+            cols=max_cols,
+            preset=preset,
+            target_width=target_width,
+        )
+
+        if not generated:
+            print("❌ 自动拼接未生成任何文件")
+            return False
+
+        # 如果用户传入了单文件样式的 output_path（例如 stitched.png），并且生成了多张图片，
+        # 将第一张复制/重命名为用户指定的文件名（保留其它为编号文件）
+        if not output_path.endswith(os.path.sep) and not os.path.isdir(output_path):
+            # target file specified
+            target_file = output_path
+            try:
+                # 使用第一生成文件作为基准复制到目标文件名
+                if generated:
+                    first = generated[0]
+                    # 如果目标文件是同一路径则不做操作
+                    if os.path.abspath(first) != os.path.abspath(target_file):
+                        from shutil import copyfile
+
+                        copyfile(first, target_file)
+                        print(f"✅ 另存为: {target_file}")
+            except Exception as e:
+                print(f"⚠️ 无法另存为指定文件: {e}")
+
+        print(f"🎉 生成了 {len(generated)} 张拼接图片，保存在: {os.path.abspath(output_dir)}")
+        return True
 
     def create_tabletop_simulator_deck(
         self,
         image_paths: List[str],
         output_dir: str,
         cards_per_sheet: int = 70,
-        cols: int = 10
+        cols: int = 10,
+        preset: Optional[str] = None,
+        target_width: Optional[int] = None,
     ) -> List[str]:
         """
         为Tabletop Simulator创建卡牌组
@@ -198,7 +276,10 @@ class ImageStitcher:
             output_file = os.path.join(output_dir, f"deck_sheet_{sheet_idx + 1}.png")
 
             # 拼接图片
-            if self.stitch_images(sheet_images, rows, cols, output_file, spacing=0):
+            if self.stitch_images(
+                sheet_images, rows, cols, output_file, spacing=0,
+                preset=preset, target_width=target_width
+            ):
                 output_files.append(output_file)
 
         return output_files
@@ -217,6 +298,9 @@ def main():
     parser.add_argument('--tts', action='store_true', help='生成TTS格式（10×7，每页70张）')
     parser.add_argument('--card-width', type=int, default=1500, help='卡牌宽度（默认: 1500）')
     parser.add_argument('--card-height', type=int, default=2100, help='卡牌高度（默认: 2100）')
+    parser.add_argument('--preset', type=str, choices=['4k', '2k', '1080p', '720p'], help='输出缩放预设')
+    parser.add_argument('--target-width', type=int, help='自定义目标宽度（像素），用于压缩输出图像')
+    parser.add_argument('--cards-per-sheet', type=int, help='每页卡牌数（自动拼接分批时使用）')
 
     args = parser.parse_args()
 
@@ -233,7 +317,12 @@ def main():
 
         output_dir = Path(args.output).parent / 'tts_decks'
         sheets = stitcher.create_tabletop_simulator_deck(
-            image_paths, str(output_dir), cards_per_sheet=70, cols=10
+            image_paths,
+            str(output_dir),
+            cards_per_sheet=70,
+            cols=10,
+            preset=args.preset,
+            target_width=args.target_width,
         )
         print(f"\n🎉 生成了 {len(sheets)} 张TTS卡牌页")
 
@@ -248,12 +337,24 @@ def main():
             ]
             image_paths.sort()
             stitcher.stitch_images(
-                image_paths, args.rows, args.cols, args.output, args.spacing
+                image_paths,
+                args.rows,
+                args.cols,
+                args.output,
+                args.spacing,
+                preset=args.preset,
+                target_width=args.target_width,
             )
         else:
             # 自动拼接
             stitcher.auto_stitch(
-                args.input_dir, args.output, max_cols=args.cols, spacing=args.spacing
+                args.input_dir,
+                args.output,
+                max_cols=args.cols,
+                spacing=args.spacing,
+                cards_per_sheet=args.cards_per_sheet,
+                preset=args.preset,
+                target_width=args.target_width,
             )
 
 

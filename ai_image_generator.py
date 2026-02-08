@@ -8,6 +8,7 @@ AI图片生成模块
 import os
 import base64
 import time
+import json
 from typing import Optional
 from pathlib import Path
 import requests
@@ -80,6 +81,253 @@ class AIImageGenerator:
 
         if not api_key:
             print("⚠️ 未设置STABILITY_API_KEY环境变量")
+            return None
+
+    def generate_with_huggingface(
+        self,
+        prompt: str,
+        model: str = "stabilityai/stable-diffusion-2",
+        api_key: Optional[str] = None,
+        width: int = 1024,
+        height: int = 1024,
+    ) -> Optional[bytes]:
+        """
+        使用 Hugging Face 推理 API 生成图片（需 API token，可试用免费额度）
+
+        返回图片字节或 None。
+        """
+        if not api_key:
+            api_key = os.environ.get("HF_API_KEY") or os.environ.get("HUGGINGFACE_API_KEY")
+
+        if not api_key:
+            print("⚠️ 未设置 Hugging Face API key (环境变量 HF_API_KEY 或 HUGGINGFACE_API_KEY)")
+            return None
+
+        url = f"https://api-inference.huggingface.co/models/{model}"
+
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        payload = {
+            "inputs": prompt,
+            "options": {"wait_for_model": True},
+            "parameters": {"width": width, "height": height}
+        }
+
+        try:
+            print(f"🎨 使用 Hugging Face ({model}) 生成图片...")
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+
+            # 如果直接返回二进制图像（Content-Type: image/*）
+            ctype = response.headers.get("content-type", "")
+            if ctype.startswith("image"):
+                print("✅ 图片生成成功 (Hugging Face)")
+                return response.content
+
+            # 否则尝试解析 JSON 中的 base64 字符串
+            try:
+                data = response.json()
+            except Exception:
+                print(f"❌ Hugging Face 返回错误: HTTP {response.status_code}")
+                return None
+
+            # 常见返回可能带有 base64 字符串字段
+            # 搜索第一个看起来像 base64 的值
+            def find_base64(obj):
+                if isinstance(obj, dict):
+                    for v in obj.values():
+                        res = find_base64(v)
+                        if res:
+                            return res
+                elif isinstance(obj, list):
+                    for v in obj:
+                        res = find_base64(v)
+                        if res:
+                            return res
+                elif isinstance(obj, str):
+                    # 简单判断是否为 base64（数据较长且只包含 base64 字符）
+                    if len(obj) > 200 and all(c.isalnum() or c in "+/=\n\r" for c in obj):
+                        return obj
+                return None
+
+            b64 = find_base64(data)
+            if b64:
+                try:
+                    image_data = base64.b64decode(b64)
+                    print("✅ 图片生成成功 (Hugging Face - base64)")
+                    return image_data
+                except Exception:
+                    pass
+
+            print(f"❌ Hugging Face 生成失败或无有效图像: HTTP {response.status_code}")
+            return None
+
+        except Exception as e:
+            print(f"❌ 使用 Hugging Face 生成时出错: {e}")
+            return None
+
+    def generate_with_modelscope(
+        self,
+        prompt: str,
+        model: str = "damo/text-to-image",
+        api_key: Optional[str] = None,
+        width: int = 1024,
+        height: int = 1024,
+    ) -> Optional[bytes]:
+        """
+        使用 ModelScope 文生图（Z-Image 等）API。需要在环境变量 MODELSCOPE_API_KEY 中设置 token，或传入 api_key。
+
+        注意：ModelScope 的模型名可能需要调整为可用的 text-to-image 模型（例如 Z-Image-Turbo 的具体标识）。
+        """
+        if not api_key:
+            api_key = os.environ.get("MODELSCOPE_API_KEY")
+
+        if not api_key:
+            print("⚠️ 未设置 MODELSCOPE_API_KEY 环境变量")
+            return None
+
+        url = f"https://api.modelscope.cn/api/v1/models/{model}/invoke"
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        payload = {"input": prompt, "parameters": {"width": width, "height": height}}
+
+        try:
+            print(f"🎨 使用 ModelScope ({model}) 生成图片...")
+            response = requests.post(url, headers=headers, json=payload, timeout=120)
+
+            ctype = response.headers.get("content-type", "")
+            if ctype.startswith("image"):
+                print("✅ 图片生成成功 (ModelScope)")
+                return response.content
+
+            # 尝试解析 JSON，寻找 base64 图像
+            data = response.json()
+            # 常见 ModelScope 返回可能在 outputs 或 data 字段
+            candidates = []
+            if isinstance(data, dict):
+                for k in ("outputs", "output", "data", "result"):
+                    v = data.get(k)
+                    if v:
+                        candidates.append(v)
+
+            def find_b64(obj):
+                if isinstance(obj, dict):
+                    for v in obj.values():
+                        res = find_b64(v)
+                        if res:
+                            return res
+                elif isinstance(obj, list):
+                    for v in obj:
+                        res = find_b64(v)
+                        if res:
+                            return res
+                elif isinstance(obj, str):
+                    if len(obj) > 200 and all(c.isalnum() or c in "+/=\n\r" for c in obj):
+                        return obj
+                return None
+
+            b64 = None
+            for cand in candidates:
+                b64 = find_b64(cand)
+                if b64:
+                    break
+
+            if b64:
+                try:
+                    image_data = base64.b64decode(b64)
+                    print("✅ 图片生成成功 (ModelScope - base64)")
+                    return image_data
+                except Exception:
+                    pass
+
+            print(f"❌ ModelScope 返回但未找到图像: HTTP {response.status_code}")
+            return None
+
+        except Exception as e:
+            print(f"❌ 使用 ModelScope 生成时出错: {e}")
+            return None
+
+    def generate_with_modelscope_inference(
+        self,
+        prompt: str,
+        model: str = "Qwen/Qwen-Image",
+        api_key: Optional[str] = None,
+        width: int = 1024,
+        height: int = 1024,
+        poll_interval: int = 5,
+    ) -> Optional[bytes]:
+        """
+        使用 ModelScope 推理异步接口 (api-inference.modelscope.cn) 生成图片。
+
+        示例流程参考：POST /v1/images/generations -> poll /v1/tasks/{task_id} -> 获取 data['output_images'][0]
+        返回图片字节或 None。
+        """
+        if not api_key:
+            api_key = os.environ.get("MODELSCOPE_SDK_TOKEN") or os.environ.get("MODELSCOPE_API_KEY")
+
+        if not api_key:
+            print("⚠️ 未设置 ModelScope SDK token (环境变量 MODELSCOPE_SDK_TOKEN 或 MODELSCOPE_API_KEY)")
+            return None
+
+        base_url = "https://api-inference.modelscope.cn/"
+
+        common_headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+        }
+
+        try:
+            print(f"🎨 使用 ModelScope 推理接口 ({model}) 生成图片 (异步)...")
+            resp = requests.post(
+                f"{base_url}v1/images/generations",
+                headers={**common_headers, "X-ModelScope-Async-Mode": "true"},
+                data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                timeout=30,
+            )
+            resp.raise_for_status()
+            task_id = resp.json().get("task_id")
+            if not task_id:
+                print("❌ 未返回 task_id")
+                return None
+
+            # 轮询任务
+            while True:
+                result = requests.get(
+                    f"{base_url}v1/tasks/{task_id}",
+                    headers={**common_headers, "X-ModelScope-Task-Type": "image_generation"},
+                    timeout=30,
+                )
+                result.raise_for_status()
+                data = result.json()
+
+                status = data.get("task_status")
+                if status == "SUCCEED":
+                    output_images = data.get("output_images") or []
+                    if not output_images:
+                        print("❌ 任务成功但未返回图片 URL")
+                        return None
+
+                    image_url = output_images[0]
+                    img_resp = requests.get(image_url, timeout=60)
+                    img_resp.raise_for_status()
+                    print("✅ 图片生成成功 (ModelScope 推理)")
+                    return img_resp.content
+
+                if status == "FAILED":
+                    print("❌ Image Generation Failed.")
+                    return None
+
+                time.sleep(poll_interval)
+
+        except Exception as e:
+            print(f"❌ 使用 ModelScope 推理接口时出错: {e}")
             return None
 
         try:
@@ -171,7 +419,8 @@ class AIImageGenerator:
         prompt: str,
         output_path: str,
         width: int = 1024,
-        height: int = 1024
+        height: int = 1024,
+        poll_interval: int = 5,
     ) -> bool:
         """
         生成并保存图片
@@ -190,6 +439,19 @@ class AIImageGenerator:
             image_data = self.generate_with_pollinations(prompt, width, height)
         elif self.api_type == "stability":
             image_data = self.generate_with_stability(prompt)
+        elif self.api_type == "huggingface":
+            model = getattr(self, 'api_model', None) or "stabilityai/stable-diffusion-2"
+            api_key = getattr(self, 'api_key', None)
+            image_data = self.generate_with_huggingface(prompt, model=model, api_key=api_key, width=width, height=height)
+        elif self.api_type == "modelscope":
+            model = getattr(self, 'api_model', None) or "damo/text-to-image"
+            api_key = getattr(self, 'api_key', None)
+            image_data = self.generate_with_modelscope(prompt, model=model, api_key=api_key, width=width, height=height)
+        elif self.api_type == "modelscope_inference":
+            model = getattr(self, 'api_model', None) or "Qwen/Qwen-Image"
+            api_key = getattr(self, 'api_key', None)
+            poll = getattr(self, 'poll_interval', poll_interval)
+            image_data = self.generate_with_modelscope_inference(prompt, model=model, api_key=api_key, width=width, height=height, poll_interval=poll)
         else:
             print(f"❌ 不支持的API类型: {self.api_type}")
             return False
@@ -256,7 +518,11 @@ class AIImageGenerator:
         self,
         json_dir: str,
         output_dir: str,
-        update_json: bool = True
+        update_json: bool = False,
+        width: int = 1024,
+        height: int = 1024,
+        poll_interval: int = 5,
+        skip_if_exists: bool = True,
     ) -> int:
         """
         为现有卡牌JSON生成图片并更新art_path
@@ -269,8 +535,6 @@ class AIImageGenerator:
         Returns:
             成功生成的数量
         """
-        import json
-
         json_files = list(Path(json_dir).glob("*.json"))
 
         if not json_files:
@@ -303,7 +567,13 @@ class AIImageGenerator:
 
                 print(f"\n生成 {card_name}...")
 
-                if self.generate_and_save(prompt, output_path):
+                # 如果目标图片已存在且用户选择跳过，则直接跳过该卡牌
+                if skip_if_exists and os.path.exists(output_path):
+                    print(f"⚠️ 图片已存在，跳过: {output_path}")
+                    # 不更新 JSON，也不计入成功数
+                    continue
+
+                if self.generate_and_save(prompt, output_path, width=width, height=height, poll_interval=poll_interval):
                     success_count += 1
 
                     # 更新JSON中的art_path
@@ -368,17 +638,34 @@ def main():
     parser.add_argument('-o', '--output', default='generated_art.png', help='输出文件路径')
     parser.add_argument('--json-dir', type=str, help='JSON文件目录（批量模式）')
     parser.add_argument('--output-dir', default='generated_art', help='输出目录（批量模式）')
-    parser.add_argument('--api', default='pollinations', choices=['pollinations', 'stability'], help='API类型')
+    parser.add_argument('--api', default='pollinations', choices=['pollinations', 'stability', 'huggingface', 'modelscope', 'modelscope_inference'], help='API类型')
     parser.add_argument('--width', type=int, default=1024, help='图片宽度')
     parser.add_argument('--height', type=int, default=1024, help='图片高度')
+    parser.add_argument('--poll-interval', type=int, default=5, help='ModelScope 推理轮询间隔（秒）')
+
+    parser.add_argument('--api-key', type=str, default=None, help='API 密钥 (Hugging Face: HF_API_KEY, ModelScope: MODELSCOPE_API_KEY)')
+    parser.add_argument('--model', type=str, default=None, help='指定模型（Hugging Face 或 ModelScope 的模型标识）')
 
     args = parser.parse_args()
 
     generator = AIImageGenerator(api_type=args.api)
 
+    # 将可选的 api_key / model 传入 generator，方法会读取这些属性
+    if args.api_key:
+        generator.api_key = args.api_key
+    if args.model:
+        generator.api_model = args.model
+
     if args.json_dir:
-        # 批量模式
-        count = generator.enhance_existing_cards(args.json_dir, args.output_dir, update_json=True)
+        # 批量模式（注意：默认不会修改 JSON 中的 art_path，因为 CardConjurer 仅接受 URL）
+        count = generator.enhance_existing_cards(
+            args.json_dir,
+            args.output_dir,
+            update_json=False,
+            width=args.width,
+            height=args.height,
+            poll_interval=args.poll_interval,
+        )
         print(f"\n🎉 成功生成 {count} 张图片")
     elif args.prompt:
         # 单张模式
