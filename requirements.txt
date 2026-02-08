@@ -11,6 +11,9 @@ selenium>=4.15.0
 # HTTP requests (for AI image generation)
 requests>=2.31.0
 
+# MCP SDK (for AI integration)
+mcp>=0.1.0
+
 # GUI (built-in with Python, no need to install)
 # tkinter is included with standard Python installation
 

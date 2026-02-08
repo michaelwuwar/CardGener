@@ -7,10 +7,36 @@
       ],
       "cwd": "/path/to/CardGener",
       "env": {},
-      "description": "CardGener MCP Server - AI-powered card generation with all parameters provided by AI"
+      "description": "CardGener MCP Server - AI-powered card generation with comprehensive workflow tools"
     }
   },
   "tools": {
+    "get_card_schema": {
+      "description": "Get the current card schema definition",
+      "required_parameters": [],
+      "example": {}
+    },
+    "update_card_schema": {
+      "description": "Update card schema to add/modify fields or types",
+      "required_parameters": [
+        "action"
+      ],
+      "optional_parameters": [
+        "field_name",
+        "field_config",
+        "value"
+      ],
+      "example": {
+        "action": "add_field",
+        "field_name": "rarity",
+        "field_config": {
+          "type": "enum",
+          "required": false,
+          "description": "Card rarity",
+          "values": ["Common", "Rare", "Legendary"]
+        }
+      }
+    },
     "generate_card": {
       "description": "Generate a single card with AI-provided parameters",
       "required_parameters": [
@@ -76,21 +102,99 @@
         "output_path": "output"
       }
     },
-    "parse_natural_language": {
-      "description": "Parse natural language description into structured card parameters",
+    "generate_ai_artwork": {
+      "description": "Generate AI artwork for cards using free services",
       "required_parameters": [
-        "description"
+        "cards"
       ],
       "optional_parameters": [
-        "context"
+        "output_dir",
+        "api_type",
+        "width",
+        "height"
       ],
       "example": {
-        "description": "Create a ninja attack card called Shadow Strike that costs 2 resources, deals 5 damage with 3 defense",
-        "context": {
-          "game_type": "Flesh and Blood",
-          "card_set": "Custom",
-          "rarity": "Common"
-        }
+        "cards": [
+          {
+            "card_name": "Shadow Strike",
+            "card_type": "Action - Attack",
+            "class_type": "ninja"
+          }
+        ],
+        "output_dir": "generated_art",
+        "api_type": "pollinations",
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    "render_cards_to_images": {
+      "description": "Render card JSONs to PNG images via CardConjurer",
+      "required_parameters": [
+        "json_dir"
+      ],
+      "optional_parameters": [
+        "output_dir",
+        "headless",
+        "overlay_art_dir"
+      ],
+      "example": {
+        "json_dir": "output/cards",
+        "output_dir": "rendered_cards",
+        "headless": true,
+        "overlay_art_dir": "generated_art"
+      }
+    },
+    "stitch_card_images": {
+      "description": "Stitch card images into printable sheets",
+      "required_parameters": [
+        "image_dir"
+      ],
+      "optional_parameters": [
+        "output_path",
+        "cols",
+        "rows",
+        "cards_per_sheet",
+        "preset",
+        "tts_mode"
+      ],
+      "example": {
+        "image_dir": "rendered_cards",
+        "output_path": "final_deck.png",
+        "tts_mode": true,
+        "preset": "4k"
+      }
+    },
+    "full_workflow": {
+      "description": "Execute complete card generation workflow from cards to stitched sheets",
+      "required_parameters": [
+        "cards"
+      ],
+      "optional_parameters": [
+        "output_base_dir",
+        "generate_artwork",
+        "render_images",
+        "stitch_images",
+        "tts_format",
+        "ai_api"
+      ],
+      "example": {
+        "cards": [
+          {
+            "card_name": "Shadow Strike",
+            "card_type": "Action - Attack",
+            "rules_text": "Deal 5 damage. Go again.",
+            "cost": "2",
+            "power": "5",
+            "defense": "3",
+            "class_type": "ninja"
+          }
+        ],
+        "output_base_dir": "complete_set",
+        "generate_artwork": true,
+        "render_images": true,
+        "stitch_images": true,
+        "tts_format": true,
+        "ai_api": "pollinations"
       }
     }
   },
@@ -146,5 +250,11 @@
       "output_path": "Output directory",
       "template_path": "Custom template file path"
     }
+  },
+  "workflow_notes": {
+    "full_workflow": "Use full_workflow for complete automation from card data to printable sheets",
+    "individual_tools": "Use individual tools for fine-grained control over each step",
+    "schema_management": "Customize card schema with get_card_schema and update_card_schema",
+    "ai_services": "Free AI artwork via pollinations API, no API key required"
   }
 }

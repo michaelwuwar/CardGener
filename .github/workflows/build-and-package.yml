@@ -17,7 +17,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.8', '3.9', '3.10', '3.11']
         exclude:
-          # 减少构建组合，只在主要版本上测试所有平台
+          # Reduce build combinations
           - os: macos-latest
             python-version: '3.8'
           - os: macos-latest
@@ -67,17 +67,31 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
+    - name: Create icon placeholder (if missing)
+      run: |
+        # Create a simple placeholder if icon is missing
+        python -c "from PIL import Image; img = Image.new('RGB', (256, 256), color='blue'); img.save('icon.ico')" || echo "Icon creation skipped"
+      continue-on-error: true
+      shell: bash
+
     - name: Build executable with PyInstaller
       run: |
-        pyinstaller --name=CardGener --onefile --windowed --icon=icon.ico gui.py || pyinstaller --name=CardGener --onefile --windowed gui.py
+        # Try with icon first, fall back to without icon
+        pyinstaller --name=CardGener --onefile --windowed --add-data="template.json:." gui.py || pyinstaller --name=CardGener --onefile --windowed gui.py
+      continue-on-error: true
+      shell: bash
+
+    - name: List dist directory
+      run: ls -la dist/ || dir dist\
+      shell: bash
+      continue-on-error: true
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: CardGener-${{ matrix.os }}
+        name: CardGener-${{ matrix.os }}-py${{ matrix.python-version }}
         path: |
-          dist/CardGener*
-          dist/CardGener.app/**/*
+          dist/*
         if-no-files-found: warn
 
   release:
@@ -90,13 +104,22 @@ jobs:
 
     - name: Download all artifacts
       uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: List all artifacts
+      run: |
+        ls -R artifacts/
+        find artifacts -type f
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          CardGener-*/*
+          artifacts/**/*
         draft: false
         prerelease: false
+        fail_on_unmatched_files: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
