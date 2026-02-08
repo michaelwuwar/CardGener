@@ -12,7 +12,8 @@ selenium>=4.15.0
 requests>=2.31.0
 
 # MCP SDK (for AI integration)
-mcp>=0.1.0
+# mcp>=0.1.0  # optional: not available on PyPI. Install manually or via a VCS URL
+# Example: git+https://github.com/OWNER/mcp.git@v0.1.0#egg=mcp
 
 # GUI (built-in with Python, no need to install)
 # tkinter is included with standard Python installation
