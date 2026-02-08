@@ -36,11 +36,24 @@ env/
 .DS_Store
 Thumbs.db
 
-# Output directories
+# Project specific
 output/
+downloaded_images/
+generated_art/
 test_output/
+generated_images_cache/
+tts_decks/
+*.xlsx
+*.xls
+!sample_cards.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
 
 # Temporary files
+tmp/
 *.tmp
-tmp*/
-tmpclaude*
+*.log
+tmpclaude-*
