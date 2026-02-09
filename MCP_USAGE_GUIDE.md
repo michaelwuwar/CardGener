@@ -7,9 +7,10 @@ CardGener MCP (Model Context Protocol) Server 为AI模型提供了与CardGener�
 ## 主要特性
 
 ✅ **AI参数生成** - 所有卡牌参数由AI自动生成
-✅ **三大工具** - 单卡生成、批量生成、自然语言解析
+✅ **完整工具集** - 卡牌生成、读取、搜索、修改、删除等完整功能
 ✅ **MCP标准** - 完全符合Model Context Protocol规范
 ✅ **灵活集成** - 可与Claude Desktop等AI客户端无缝集成
+✅ **交互式管理** - 支持读取和搜索现有卡牌，便于AI与用户交互式修改
 
 ## 安装
 
@@ -40,7 +41,7 @@ python mcp_server.py
 
 ### 1. generate_card - 生成单张卡牌
 
-**功能**：根据AI提供的完整参数生成单张CardConjurer格式的JSON卡牌。
+**功能**：根据AI提供的完整参数生成单张CardConjurer格式的JSON卡牌。**注意**：如果输出目录中已存在同名卡牌，将会被**覆盖**。这使得可以通过重新生成来修改现有卡牌。
 
 **必需参数（由AI生成）**：
 - `card_name` - 卡牌名称
@@ -164,7 +165,148 @@ python mcp_server.py
 }
 ```
 
-### 3. parse_natural_language - 自然语言解析
+### 3. read_card - 读取卡牌
+
+**功能**：读取并解析卡牌JSON文件，提取简化的卡牌信息。将复杂的JSON结构逆向处理为可读的字段。
+
+**必需参数（由AI生成）**：
+- `file_path` - 卡牌JSON文件路径
+
+**示例调用**：
+
+```json
+{
+  "tool": "read_card",
+  "parameters": {
+    "file_path": "output/Shadow_Strike.json"
+  }
+}
+```
+
+**返回结果**：
+
+```json
+{
+  "status": "success",
+  "message": "✅ Card read successfully: Shadow Strike",
+  "card": {
+    "card_name": "Shadow Strike",
+    "card_type": "Action - Attack",
+    "rules_text": "Deal 5 damage to target hero. Go again.",
+    "cost": "2",
+    "power": "5",
+    "defense": "3",
+    "art_path": "images/shadow_strike.jpg",
+    "class_type": "ninja",
+    "artist": "John Doe",
+    "year": "2024",
+    "file_path": "output/Shadow_Strike.json"
+  }
+}
+```
+
+### 4. search_cards - 搜索卡牌
+
+**功能**：使用正则表达式模式搜索卡牌。可以搜索所有字段或指定特定字段，便于快速定位卡牌。
+
+**必需参数（由AI生成）**：
+- `pattern` - 要搜索的正则表达式模式
+
+**可选参数（由AI生成）**：
+- `search_dir` - 搜索目录（默认："output"）
+- `field` - 要搜索的特定字段（card_name, card_type, rules_text, cost, power, defense, class_type, artist）
+- `case_sensitive` - 是否区分大小写（默认：false）
+
+**示例调用**：
+
+```json
+{
+  "tool": "search_cards",
+  "parameters": {
+    "pattern": "ninja",
+    "field": "class_type"
+  }
+}
+```
+
+搜索包含"attack"的卡牌：
+```json
+{
+  "pattern": "attack",
+  "case_sensitive": false
+}
+```
+
+搜索费用为2或3的卡牌：
+```json
+{
+  "pattern": "^[23]$",
+  "field": "cost"
+}
+```
+
+**返回结果**：
+
+```json
+{
+  "status": "success",
+  "message": "🔍 Found 3 matching card(s)",
+  "pattern": "ninja",
+  "search_dir": "output",
+  "field": "class_type",
+  "matches": [
+    {
+      "card_name": "Shadow Strike",
+      "card_type": "Action - Attack",
+      "rules_text": "Deal 5 damage...",
+      "cost": "2",
+      "power": "5",
+      "defense": "3",
+      "class_type": "ninja",
+      "file_path": "output/Shadow_Strike.json"
+    }
+  ]
+}
+```
+
+### 5. delete_card - 删除卡牌
+
+**功能**：删除卡牌JSON文件。**重要**：这是破坏性操作，无法撤销。工具会返回被删除卡牌的信息以供确认。
+
+**必需参数（由AI生成）**：
+- `file_path` - 要删除的卡牌JSON文件路径
+
+**示例调用**：
+
+```json
+{
+  "tool": "delete_card",
+  "parameters": {
+    "file_path": "output/Shadow_Strike.json"
+  }
+}
+```
+
+**返回结果**：
+
+```json
+{
+  "status": "success",
+  "message": "🗑️ Card deleted: Shadow Strike",
+  "deleted_card": {
+    "card_name": "Shadow Strike",
+    "card_type": "Action - Attack",
+    "rules_text": "Deal 5 damage...",
+    "cost": "2",
+    "power": "5",
+    "defense": "3",
+    "class_type": "ninja"
+  },
+  "deleted_file": "output/Shadow_Strike.json"
+}
+```
+
+### 6. parse_natural_language - 自然语言解析
 
 **功能**：解析自然语言描述，提取结构化的卡牌参数。AI可以使用此工具将文本描述转换为结构化参数，然后调用`generate_card`。
 
