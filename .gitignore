@@ -43,6 +43,7 @@ generated_art/
 test_output/
 generated_images_cache/
 tts_decks/
+test_output/
 *.xlsx
 *.xls
 !sample_cards.csv
