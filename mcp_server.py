@@ -161,6 +161,77 @@ class CardGeneratorMCPServer:
 
         return str(output_file)
 
+    def extract_card_fields(self, card_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract simplified card information from JSON structure.
+        Reverse the generation process to get readable card data.
+        """
+        result = {
+            "card_name": "",
+            "card_type": "",
+            "rules_text": "",
+            "cost": "",
+            "power": "",
+            "defense": "",
+            "art_path": "",
+            "class_type": "",
+            "artist": "",
+            "year": ""
+        }
+
+        def extract_field(data: Dict[str, Any], field_type: str, field_name: str) -> str:
+            """Recursively extract a field value"""
+            if data.get('type') == field_type and data.get('name') == field_name:
+                if field_type == 'text':
+                    return data.get('text', '')
+                elif field_type == 'image':
+                    return data.get('src', '')
+
+            if 'children' in data:
+                for child in data['children']:
+                    value = extract_field(child, field_type, field_name)
+                    if value:
+                        return value
+            return ''
+
+        def extract_class_type(data: Dict[str, Any]) -> str:
+            """Extract class type from image name"""
+            if data.get('type') == 'image' and 'Class' in data.get('name', ''):
+                name = data.get('name', '')
+                # Extract class name from "Ninja Class" format
+                class_name = name.replace(' Class', '').strip().lower()
+                return class_name
+
+            if 'children' in data:
+                for child in data['children']:
+                    value = extract_class_type(child)
+                    if value:
+                        return value
+            return ''
+
+        # Extract fields from card data
+        if 'data' in card_data:
+            result['card_name'] = extract_field(card_data['data'], 'text', 'Title')
+            result['card_type'] = extract_field(card_data['data'], 'text', 'Type')
+            result['rules_text'] = extract_field(card_data['data'], 'text', 'Rules')
+            result['cost'] = extract_field(card_data['data'], 'text', 'Cost')
+            result['power'] = extract_field(card_data['data'], 'text', 'Left Stat')
+            result['defense'] = extract_field(card_data['data'], 'text', 'Right Stat')
+            result['art_path'] = extract_field(card_data['data'], 'image', 'Art')
+            result['class_type'] = extract_class_type(card_data['data'])
+
+            # Extract artist and year from Collector Info
+            collector_info = extract_field(card_data['data'], 'text', 'Collector Info')
+            if collector_info:
+                # Parse "Artist © 2024 Legend Story Studios" format
+                parts = collector_info.split('©')
+                if len(parts) >= 2:
+                    result['artist'] = parts[0].strip()
+                    year_part = parts[1].strip().split()[0]
+                    result['year'] = year_part
+
+        return result
+
     def load_card_schema(self) -> Dict[str, Any]:
         """Load or create card schema definition"""
         try:
@@ -261,6 +332,8 @@ class CardGeneratorMCPServer:
                     description=(
                         "Generate a single CardConjurer JSON card file. "
                         "AI must provide ALL card parameters based on current schema. "
+                        "If a card with the same name already exists in the output directory, it will be OVERWRITTEN. "
+                        "This allows you to modify existing cards by generating them again with updated parameters. "
                         "Returns the generated card data and file path."
                     ),
                     inputSchema={
@@ -369,6 +442,77 @@ class CardGeneratorMCPServer:
                             }
                         },
                         "required": ["cards"]
+                    }
+                ),
+                Tool(
+                    name="read_card",
+                    description=(
+                        "Read and parse a card JSON file to extract simplified card information. "
+                        "Returns readable card data with all the key fields (name, type, rules, stats, etc.) "
+                        "extracted from the complex JSON structure. Use this to view existing card details."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "Path to the card JSON file to read"
+                            }
+                        },
+                        "required": ["file_path"]
+                    }
+                ),
+                Tool(
+                    name="search_cards",
+                    description=(
+                        "Search for card JSON files using regex patterns. "
+                        "Searches in specified directory (default: 'output') for card files matching the pattern. "
+                        "Returns list of matching cards with their simplified information. "
+                        "Pattern can match card names, types, rules text, or any field value."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "pattern": {
+                                "type": "string",
+                                "description": "Regex pattern to search for (matches against card fields)"
+                            },
+                            "search_dir": {
+                                "type": "string",
+                                "description": "Directory to search in (default: 'output')",
+                                "default": "output"
+                            },
+                            "field": {
+                                "type": "string",
+                                "description": "Specific field to search in (card_name, card_type, rules_text, etc.). If not specified, searches all fields.",
+                                "enum": ["card_name", "card_type", "rules_text", "cost", "power", "defense", "class_type", "artist"]
+                            },
+                            "case_sensitive": {
+                                "type": "boolean",
+                                "description": "Whether the search should be case-sensitive",
+                                "default": false
+                            }
+                        },
+                        "required": ["pattern"]
+                    }
+                ),
+                Tool(
+                    name="delete_card",
+                    description=(
+                        "Delete a card JSON file. "
+                        "IMPORTANT: This operation is destructive and cannot be undone. "
+                        "The tool will return information about the card to be deleted for confirmation. "
+                        "Use with caution."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "Path to the card JSON file to delete"
+                            }
+                        },
+                        "required": ["file_path"]
                     }
                 ),
                 Tool(
@@ -766,6 +910,162 @@ class CardGeneratorMCPServer:
                         text=json.dumps({
                             "status": "error",
                             "message": f"❌ Batch generation failed: {str(e)}"
+                        }, indent=2)
+                    )]
+
+            elif name == "read_card":
+                try:
+                    file_path = arguments.get('file_path')
+                    if not file_path:
+                        raise ValueError("file_path is required")
+
+                    # Check if file exists
+                    if not Path(file_path).exists():
+                        raise FileNotFoundError(f"Card file not found: {file_path}")
+
+                    # Load card JSON
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        card_data = json.load(f)
+
+                    # Extract simplified card information
+                    card_info = self.extract_card_fields(card_data)
+                    card_info['file_path'] = file_path
+
+                    result = {
+                        "status": "success",
+                        "message": f"✅ Card read successfully: {card_info['card_name']}",
+                        "card": card_info
+                    }
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result, indent=2, ensure_ascii=False)
+                    )]
+
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "error",
+                            "message": f"❌ Failed to read card: {str(e)}"
+                        }, indent=2)
+                    )]
+
+            elif name == "search_cards":
+                try:
+                    import re
+
+                    pattern = arguments.get('pattern')
+                    search_dir = arguments.get('search_dir', 'output')
+                    field = arguments.get('field')
+                    case_sensitive = arguments.get('case_sensitive', False)
+
+                    if not pattern:
+                        raise ValueError("pattern is required")
+
+                    # Create regex pattern
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    regex = re.compile(pattern, flags)
+
+                    # Find all JSON files in search directory
+                    search_path = Path(search_dir)
+                    if not search_path.exists():
+                        raise FileNotFoundError(f"Search directory not found: {search_dir}")
+
+                    json_files = list(search_path.glob("**/*.json"))
+                    matches = []
+
+                    for json_file in json_files:
+                        try:
+                            # Load and extract card data
+                            with open(json_file, 'r', encoding='utf-8') as f:
+                                card_data = json.load(f)
+
+                            card_info = self.extract_card_fields(card_data)
+                            card_info['file_path'] = str(json_file)
+
+                            # Search in specified field or all fields
+                            if field:
+                                # Search specific field
+                                field_value = card_info.get(field, '')
+                                if regex.search(str(field_value)):
+                                    matches.append(card_info)
+                            else:
+                                # Search all fields
+                                match_found = False
+                                for key, value in card_info.items():
+                                    if key != 'file_path' and regex.search(str(value)):
+                                        match_found = True
+                                        break
+                                if match_found:
+                                    matches.append(card_info)
+
+                        except Exception as e:
+                            # Skip files that can't be read
+                            print(f"⚠️ Skipping {json_file}: {e}", file=sys.stderr)
+                            continue
+
+                    result = {
+                        "status": "success",
+                        "message": f"🔍 Found {len(matches)} matching card(s)",
+                        "pattern": pattern,
+                        "search_dir": search_dir,
+                        "field": field,
+                        "matches": matches
+                    }
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result, indent=2, ensure_ascii=False)
+                    )]
+
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "error",
+                            "message": f"❌ Search failed: {str(e)}"
+                        }, indent=2)
+                    )]
+
+            elif name == "delete_card":
+                try:
+                    file_path = arguments.get('file_path')
+                    if not file_path:
+                        raise ValueError("file_path is required")
+
+                    # Check if file exists
+                    file_path_obj = Path(file_path)
+                    if not file_path_obj.exists():
+                        raise FileNotFoundError(f"Card file not found: {file_path}")
+
+                    # Read card info before deletion for confirmation
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        card_data = json.load(f)
+
+                    card_info = self.extract_card_fields(card_data)
+
+                    # Delete the file
+                    file_path_obj.unlink()
+
+                    result = {
+                        "status": "success",
+                        "message": f"🗑️ Card deleted: {card_info['card_name']}",
+                        "deleted_card": card_info,
+                        "deleted_file": file_path
+                    }
+
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result, indent=2, ensure_ascii=False)
+                    )]
+
+                except Exception as e:
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "error",
+                            "message": f"❌ Failed to delete card: {str(e)}"
                         }, indent=2)
                     )]
 

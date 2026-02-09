@@ -38,7 +38,7 @@
       }
     },
     "generate_card": {
-      "description": "Generate a single card with AI-provided parameters",
+      "description": "Generate a single card with AI-provided parameters. If a card with the same name exists, it will be overwritten (useful for modifying existing cards).",
       "required_parameters": [
         "card_name",
         "card_type",
@@ -67,6 +67,41 @@
         "artist": "John Doe",
         "year": "2024",
         "output_path": "output"
+      }
+    },
+    "read_card": {
+      "description": "Read and parse a card JSON file to extract simplified information",
+      "required_parameters": [
+        "file_path"
+      ],
+      "example": {
+        "file_path": "output/Shadow_Strike.json"
+      }
+    },
+    "search_cards": {
+      "description": "Search for cards using regex patterns across all fields or specific fields",
+      "required_parameters": [
+        "pattern"
+      ],
+      "optional_parameters": [
+        "search_dir",
+        "field",
+        "case_sensitive"
+      ],
+      "example": {
+        "pattern": "ninja|assassin",
+        "search_dir": "output",
+        "field": "class_type",
+        "case_sensitive": false
+      }
+    },
+    "delete_card": {
+      "description": "Delete a card JSON file (destructive operation, use with caution)",
+      "required_parameters": [
+        "file_path"
+      ],
+      "example": {
+        "file_path": "output/Shadow_Strike.json"
       }
     },
     "generate_cards_batch": {

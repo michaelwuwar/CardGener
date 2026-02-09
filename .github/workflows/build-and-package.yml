@@ -164,26 +164,51 @@ jobs:
         fi
 
   release:
-    needs: package
+    needs: [package, create_tag]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
     - uses: actions/checkout@v3
 
+    - name: Read VERSION
+      id: version
+      run: |
+        if [ -f VERSION ]; then
+          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+          echo "tag=v$(cat VERSION)" >> $GITHUB_OUTPUT
+        else
+          echo "No VERSION file found"
+          exit 1
+        fi
+
+    - name: Check if tag exists
+      id: check_tag
+      run: |
+        git fetch --tags
+        if git rev-parse "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Download all artifacts
+      if: steps.check_tag.outputs.exists == 'true'
       uses: actions/download-artifact@v4
       with:
         path: artifacts
 
     - name: List all artifacts
+      if: steps.check_tag.outputs.exists == 'true'
       run: |
         ls -R artifacts/
         find artifacts -type f
 
     - name: Create Release
+      if: steps.check_tag.outputs.exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: ${{ steps.version.outputs.tag }}
         files: |
           artifacts/**/*
         draft: false
