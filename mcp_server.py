@@ -11,9 +11,11 @@ import sys
 import os
 import time
 import asyncio
+import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 import csv
+from datetime import datetime
 
 # MCP SDK imports
 try:
@@ -24,24 +26,76 @@ try:
         TextContent,
         ImageContent,
         EmbeddedResource,
+        Resource,
+        ResourceTemplate,
     )
 except ImportError:
     print("❌ MCP SDK not installed. Install with: pip install mcp", file=sys.stderr)
     sys.exit(1)
+
+# Version information
+__version__ = "1.0.0"
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stderr)]
+)
+logger = logging.getLogger("cardgener-mcp")
 
 
 class CardGeneratorMCPServer:
     """MCP Server for CardGener - All parameters are AI-generated"""
 
     def __init__(self):
+        # Initialize server with metadata
         self.server = Server("cardgener-mcp-server")
+        self.server_info = {
+            "name": "cardgener-mcp-server",
+            "version": __version__,
+            "description": "AI-powered trading card generation server with CardConjurer integration"
+        }
         self.template = None
         self.template_path = "template.json"
         self.card_schema = None  # Dynamic card schema
         self.schema_path = "card_schema.json"
 
-        # Setup tool handlers
+        logger.info(f"Initializing CardGener MCP Server v{__version__}")
+
+        # Setup tool and resource handlers
         self.setup_handlers()
+
+    def validate_required_params(self, arguments: Dict[str, Any], required: List[str]) -> Optional[str]:
+        """Validate required parameters are present and non-empty"""
+        for param in required:
+            if param not in arguments or not arguments[param]:
+                return f"Missing required parameter: {param}"
+        return None
+
+    def create_error_response(self, message: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create standardized error response"""
+        error_response = {
+            "status": "error",
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        if details:
+            error_response["details"] = details
+        logger.error(f"Error: {message}", extra=details or {})
+        return error_response
+
+    def create_success_response(self, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create standardized success response"""
+        response = {
+            "status": "success",
+            "message": message,
+            "timestamp": datetime.now().isoformat()
+        }
+        if data:
+            response["data"] = data
+        logger.info(message)
+        return response
 
     def load_template(self, template_path: Optional[str] = None) -> Dict[str, Any]:
         """Load JSON template for card generation"""
@@ -271,14 +325,72 @@ class CardGeneratorMCPServer:
             return False
 
     def setup_handlers(self):
-        """Setup MCP tool handlers"""
+        """Setup MCP tool and resource handlers"""
+
+        @self.server.list_resources()
+        async def list_resources() -> list[Resource]:
+            """List available card resources"""
+            resources = []
+            try:
+                output_dir = Path("output")
+                if output_dir.exists():
+                    for json_file in output_dir.glob("**/*.json"):
+                        try:
+                            with open(json_file, 'r', encoding='utf-8') as f:
+                                card_data = json.load(f)
+                            card_info = self.extract_card_fields(card_data)
+
+                            resources.append(Resource(
+                                uri=f"card:///{json_file.stem}",
+                                name=card_info.get('card_name', json_file.stem),
+                                description=f"{card_info.get('card_type', 'Unknown')} - {card_info.get('class_type', 'unknown')} class",
+                                mimeType="application/json"
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Failed to load resource {json_file}: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Failed to list resources: {e}")
+
+            return resources
+
+        @self.server.read_resource()
+        async def read_resource(uri: str) -> str:
+            """Read a card resource by URI"""
+            try:
+                # Extract card name from URI (card:///card_name)
+                if not uri.startswith("card:///"):
+                    raise ValueError(f"Invalid URI format: {uri}")
+
+                card_name = uri.replace("card:///", "")
+                output_dir = Path("output")
+
+                # Find the JSON file
+                json_files = list(output_dir.glob(f"**/{card_name}.json"))
+                if not json_files:
+                    raise FileNotFoundError(f"Card not found: {card_name}")
+
+                json_file = json_files[0]
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    card_data = json.load(f)
+
+                # Extract and return simplified card information
+                card_info = self.extract_card_fields(card_data)
+                card_info['file_path'] = str(json_file)
+
+                return json.dumps(card_info, indent=2, ensure_ascii=False)
+
+            except Exception as e:
+                logger.error(f"Failed to read resource {uri}: {e}")
+                raise
 
         @self.server.list_tools()
         async def list_tools() -> list[Tool]:
             """List available tools - all require AI-generated parameters"""
-            return [
-                Tool(
-                    name="get_card_schema",
+            try:
+                tools = [
+                    Tool(
+                        name="get_card_schema",
                     description=(
                         "Get the current card schema definition including all fields, types, and their properties. "
                         "Use this to understand what fields are available for card generation and their requirements."
@@ -490,7 +602,7 @@ class CardGeneratorMCPServer:
                             "case_sensitive": {
                                 "type": "boolean",
                                 "description": "Whether the search should be case-sensitive",
-                                "default": false
+                                "default": False
                             }
                         },
                         "required": ["pattern"]
@@ -586,7 +698,7 @@ class CardGeneratorMCPServer:
                             "headless": {
                                 "type": "boolean",
                                 "description": "Run browser in headless mode",
-                                "default": true
+                                "default": True
                             },
                             "overlay_art_dir": {
                                 "type": "string",
@@ -637,7 +749,7 @@ class CardGeneratorMCPServer:
                             "tts_mode": {
                                 "type": "boolean",
                                 "description": "Create Tabletop Simulator format (10×7 grid, 70 cards per sheet)",
-                                "default": false
+                                "default": False
                             }
                         },
                         "required": ["image_dir"]
@@ -679,22 +791,22 @@ class CardGeneratorMCPServer:
                             "generate_artwork": {
                                 "type": "boolean",
                                 "description": "Whether to generate AI artwork",
-                                "default": true
+                                "default": True
                             },
                             "render_images": {
                                 "type": "boolean",
                                 "description": "Whether to render card images",
-                                "default": true
+                                "default": True
                             },
                             "stitch_images": {
                                 "type": "boolean",
                                 "description": "Whether to stitch into sheets",
-                                "default": true
+                                "default": True
                             },
                             "tts_format": {
                                 "type": "boolean",
                                 "description": "Use Tabletop Simulator format for stitching",
-                                "default": true
+                                "default": True
                             },
                             "ai_api": {
                                 "type": "string",
@@ -706,35 +818,41 @@ class CardGeneratorMCPServer:
                         "required": ["cards"]
                     }
                 )
-            ]
+                ]
+                
+                logger.info(f"Returning {len(tools)} tools to client")
+                for tool in tools:
+                    logger.debug(f"  - Tool: {tool.name}")
+                
+                return tools
+                
+            except Exception as e:
+                logger.exception(f"Error in list_tools: {e}")
+                # Return empty list on error to prevent crashes
+                return []
 
         @self.server.call_tool()
-        async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+        async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageContent | EmbeddedResource]:
             """Handle tool calls - all parameters come from AI"""
 
-            if name == "get_card_schema":
-                try:
+            try:
+                if name == "get_card_schema":
                     schema = self.load_card_schema()
-                    result = {
-                        "status": "success",
-                        "message": "✅ Card schema retrieved",
-                        "schema": schema
-                    }
+                    result = self.create_success_response(
+                        "Card schema retrieved",
+                        {"schema": schema}
+                    )
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Failed to get schema: {str(e)}"
-                        }, indent=2)
-                    )]
 
-            elif name == "update_card_schema":
-                try:
+                elif name == "update_card_schema":
+                    # Validate action parameter
+                    if 'action' not in arguments:
+                        error = self.create_error_response("Missing required parameter: action")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
+
                     schema = self.load_card_schema()
                     action = arguments.get('action')
 
@@ -742,70 +860,69 @@ class CardGeneratorMCPServer:
                         field_name = arguments.get('field_name')
                         field_config = arguments.get('field_config', {})
                         if not field_name:
-                            raise ValueError("field_name is required for add_field")
+                            error = self.create_error_response("field_name is required for add_field")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
                         schema['fields'][field_name] = field_config
-                        message = f"✅ Added field: {field_name}"
+                        message = f"Added field: {field_name}"
 
                     elif action == "modify_field":
                         field_name = arguments.get('field_name')
                         field_config = arguments.get('field_config', {})
                         if not field_name or field_name not in schema['fields']:
-                            raise ValueError(f"Field {field_name} not found")
+                            error = self.create_error_response(f"Field {field_name} not found")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
                         schema['fields'][field_name].update(field_config)
-                        message = f"✅ Modified field: {field_name}"
+                        message = f"Modified field: {field_name}"
 
                     elif action == "remove_field":
                         field_name = arguments.get('field_name')
                         if not field_name or field_name not in schema['fields']:
-                            raise ValueError(f"Field {field_name} not found")
+                            error = self.create_error_response(f"Field {field_name} not found")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
                         del schema['fields'][field_name]
-                        message = f"✅ Removed field: {field_name}"
+                        message = f"Removed field: {field_name}"
 
                     elif action == "add_card_type":
                         value = arguments.get('value')
                         if not value:
-                            raise ValueError("value is required for add_card_type")
+                            error = self.create_error_response("value is required for add_card_type")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
                         if 'card_types' not in schema:
                             schema['card_types'] = []
                         if value not in schema['card_types']:
                             schema['card_types'].append(value)
-                        message = f"✅ Added card type: {value}"
+                        message = f"Added card type: {value}"
 
                     elif action == "add_class_value":
                         value = arguments.get('value')
                         if not value:
-                            raise ValueError("value is required for add_class_value")
+                            error = self.create_error_response("value is required for add_class_value")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
                         if 'class_type' in schema['fields'] and 'values' in schema['fields']['class_type']:
                             if value not in schema['fields']['class_type']['values']:
                                 schema['fields']['class_type']['values'].append(value)
-                        message = f"✅ Added class value: {value}"
+                        message = f"Added class value: {value}"
 
                     else:
-                        raise ValueError(f"Unknown action: {action}")
+                        error = self.create_error_response(f"Unknown action: {action}")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     self.save_card_schema(schema)
 
-                    result = {
-                        "status": "success",
-                        "message": message,
-                        "updated_schema": schema
-                    }
+                    result = self.create_success_response(message, {"updated_schema": schema})
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Failed to update schema: {str(e)}"
-                        }, indent=2)
-                    )]
+                elif name == "generate_card":
+                    # Validate required parameters
+                    required_params = ['card_name', 'card_type', 'rules_text', 'cost', 'power', 'defense', 'class_type']
+                    validation_error = self.validate_required_params(arguments, required_params)
+                    if validation_error:
+                        error = self.create_error_response(validation_error)
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
-            elif name == "generate_card":
-                try:
                     # Extract AI-provided parameters
                     card_params = {
                         'card_name': arguments.get('card_name'),
@@ -831,35 +948,27 @@ class CardGeneratorMCPServer:
                         card_data, output_path, card_params['card_name']
                     )
 
-                    result = {
-                        "status": "success",
-                        "message": f"✅ Card '{card_params['card_name']}' generated successfully",
-                        "file_path": saved_path,
-                        "card_data": card_data
-                    }
+                    result = self.create_success_response(
+                        f"Card '{card_params['card_name']}' generated successfully",
+                        {
+                            "file_path": saved_path,
+                            "card_data": card_data
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Failed to generate card: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "generate_cards_batch":
-                try:
+                elif name == "generate_cards_batch":
                     cards_list = arguments.get('cards', [])
                     output_path = arguments.get('output_path', 'output')
                     template_path = arguments.get('template_path')
 
                     if not cards_list:
-                        raise ValueError("No cards provided in batch")
+                        error = self.create_error_response("No cards provided in batch")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     results = []
                     success_count = 0
@@ -890,38 +999,31 @@ class CardGeneratorMCPServer:
                                 "error": str(e)
                             })
 
-                    summary = {
-                        "status": "completed",
-                        "total_cards": len(cards_list),
-                        "successful": success_count,
-                        "failed": len(cards_list) - success_count,
-                        "message": f"🎉 Generated {success_count}/{len(cards_list)} cards successfully",
-                        "results": results
-                    }
+                    result = self.create_success_response(
+                        f"Generated {success_count}/{len(cards_list)} cards successfully",
+                        {
+                            "total_cards": len(cards_list),
+                            "successful": success_count,
+                            "failed": len(cards_list) - success_count,
+                            "results": results
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
-                        text=json.dumps(summary, indent=2, ensure_ascii=False)
+                        text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Batch generation failed: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "read_card":
-                try:
+                elif name == "read_card":
                     file_path = arguments.get('file_path')
                     if not file_path:
-                        raise ValueError("file_path is required")
+                        error = self.create_error_response("file_path is required")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     # Check if file exists
                     if not Path(file_path).exists():
-                        raise FileNotFoundError(f"Card file not found: {file_path}")
+                        error = self.create_error_response(f"Card file not found: {file_path}")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     # Load card JSON
                     with open(file_path, 'r', encoding='utf-8') as f:
@@ -931,28 +1033,17 @@ class CardGeneratorMCPServer:
                     card_info = self.extract_card_fields(card_data)
                     card_info['file_path'] = file_path
 
-                    result = {
-                        "status": "success",
-                        "message": f"✅ Card read successfully: {card_info['card_name']}",
-                        "card": card_info
-                    }
+                    result = self.create_success_response(
+                        f"Card read successfully: {card_info['card_name']}",
+                        {"card": card_info}
+                    )
 
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Failed to read card: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "search_cards":
-                try:
+                elif name == "search_cards":
                     import re
 
                     pattern = arguments.get('pattern')
@@ -961,7 +1052,8 @@ class CardGeneratorMCPServer:
                     case_sensitive = arguments.get('case_sensitive', False)
 
                     if not pattern:
-                        raise ValueError("pattern is required")
+                        error = self.create_error_response("pattern is required")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     # Create regex pattern
                     flags = 0 if case_sensitive else re.IGNORECASE
@@ -970,7 +1062,8 @@ class CardGeneratorMCPServer:
                     # Find all JSON files in search directory
                     search_path = Path(search_dir)
                     if not search_path.exists():
-                        raise FileNotFoundError(f"Search directory not found: {search_dir}")
+                        error = self.create_error_response(f"Search directory not found: {search_dir}")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     json_files = list(search_path.glob("**/*.json"))
                     matches = []
@@ -1002,42 +1095,35 @@ class CardGeneratorMCPServer:
 
                         except Exception as e:
                             # Skip files that can't be read
-                            print(f"⚠️ Skipping {json_file}: {e}", file=sys.stderr)
+                            logger.warning(f"Skipping {json_file}: {e}")
                             continue
 
-                    result = {
-                        "status": "success",
-                        "message": f"🔍 Found {len(matches)} matching card(s)",
-                        "pattern": pattern,
-                        "search_dir": search_dir,
-                        "field": field,
-                        "matches": matches
-                    }
+                    result = self.create_success_response(
+                        f"Found {len(matches)} matching card(s)",
+                        {
+                            "pattern": pattern,
+                            "search_dir": search_dir,
+                            "field": field,
+                            "matches": matches
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Search failed: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "delete_card":
-                try:
+                elif name == "delete_card":
                     file_path = arguments.get('file_path')
                     if not file_path:
-                        raise ValueError("file_path is required")
+                        error = self.create_error_response("file_path is required")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     # Check if file exists
                     file_path_obj = Path(file_path)
                     if not file_path_obj.exists():
-                        raise FileNotFoundError(f"Card file not found: {file_path}")
+                        error = self.create_error_response(f"Card file not found: {file_path}")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     # Read card info before deletion for confirmation
                     with open(file_path, 'r', encoding='utf-8') as f:
@@ -1048,29 +1134,20 @@ class CardGeneratorMCPServer:
                     # Delete the file
                     file_path_obj.unlink()
 
-                    result = {
-                        "status": "success",
-                        "message": f"🗑️ Card deleted: {card_info['card_name']}",
-                        "deleted_card": card_info,
-                        "deleted_file": file_path
-                    }
+                    result = self.create_success_response(
+                        f"Card deleted: {card_info['card_name']}",
+                        {
+                            "deleted_card": card_info,
+                            "deleted_file": file_path
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Failed to delete card: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "generate_ai_artwork":
-                try:
+                elif name == "generate_ai_artwork":
                     from ai_image_generator import AIImageGenerator
 
                     cards_data = arguments.get('cards', [])
@@ -1080,7 +1157,8 @@ class CardGeneratorMCPServer:
                     height = arguments.get('height', 1024)
 
                     if not cards_data:
-                        raise ValueError("No cards provided")
+                        error = self.create_error_response("No cards provided")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     generator = AIImageGenerator(api_type=api_type)
                     results = []
@@ -1100,7 +1178,12 @@ class CardGeneratorMCPServer:
                         output_path = os.path.join(output_dir, f"{safe_name}.png")
 
                         print(f"🎨 Generating art for: {card_name}", file=sys.stderr)
-                        success = generator.generate_and_save(prompt, output_path, width, height)
+
+                        try:
+                            success = generator.generate_and_save(prompt, output_path, width, height)
+                        except Exception as e:
+                            logger.warning(f"Failed to generate art for {card_name}: {e}")
+                            success = False
 
                         results.append({
                             "card_name": card_name,
@@ -1114,29 +1197,23 @@ class CardGeneratorMCPServer:
 
                     success_count = sum(1 for r in results if r['status'] == 'success')
 
-                    summary = {
-                        "status": "completed",
-                        "message": f"🎨 Generated {success_count}/{len(cards_data)} artworks",
-                        "output_dir": output_dir,
-                        "results": results
-                    }
+                    result = self.create_success_response(
+                        f"Generated {success_count}/{len(cards_data)} artworks",
+                        {
+                            "output_dir": output_dir,
+                            "total": len(cards_data),
+                            "successful": success_count,
+                            "failed": len(cards_data) - success_count,
+                            "results": results
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
-                        text=json.dumps(summary, indent=2, ensure_ascii=False)
+                        text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ AI artwork generation failed: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "render_cards_to_images":
-                try:
+                elif name == "render_cards_to_images":
                     from cardconjurer_automation import CardConjurerAutomation
 
                     json_dir = arguments.get('json_dir')
@@ -1145,11 +1222,13 @@ class CardGeneratorMCPServer:
                     overlay_art_dir = arguments.get('overlay_art_dir')
 
                     if not json_dir:
-                        raise ValueError("json_dir is required")
+                        error = self.create_error_response("json_dir is required")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     json_files = list(Path(json_dir).glob("*.json"))
                     if not json_files:
-                        raise ValueError(f"No JSON files found in {json_dir}")
+                        error = self.create_error_response(f"No JSON files found in {json_dir}")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     automation = CardConjurerAutomation(headless=headless, download_dir=output_dir)
                     success_count = automation.batch_import_and_download([str(f) for f in json_files])
@@ -1164,30 +1243,22 @@ class CardGeneratorMCPServer:
                             inplace=True
                         )
 
-                    result = {
-                        "status": "success",
-                        "message": f"✅ Rendered {success_count}/{len(json_files)} cards",
-                        "rendered_count": success_count,
-                        "overlay_count": overlay_count,
-                        "output_dir": output_dir
-                    }
+                    result = self.create_success_response(
+                        f"Rendered {success_count}/{len(json_files)} cards",
+                        {
+                            "rendered_count": success_count,
+                            "total_files": len(json_files),
+                            "overlay_count": overlay_count,
+                            "output_dir": output_dir
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Card rendering failed: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "stitch_card_images":
-                try:
+                elif name == "stitch_card_images":
                     from image_stitcher import ImageStitcher
 
                     image_dir = arguments.get('image_dir')
@@ -1199,7 +1270,8 @@ class CardGeneratorMCPServer:
                     tts_mode = arguments.get('tts_mode', False)
 
                     if not image_dir:
-                        raise ValueError("image_dir is required")
+                        error = self.create_error_response("image_dir is required")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     stitcher = ImageStitcher()
 
@@ -1221,12 +1293,14 @@ class CardGeneratorMCPServer:
                             preset=preset
                         )
 
-                        result = {
-                            "status": "success",
-                            "message": f"✅ Created {len(sheets)} TTS sheets",
-                            "sheets": sheets,
-                            "output_dir": str(output_dir)
-                        }
+                        result = self.create_success_response(
+                            f"Created {len(sheets)} TTS sheets",
+                            {
+                                "sheets": sheets,
+                                "output_dir": str(output_dir),
+                                "tts_format": True
+                            }
+                        )
                     else:
                         # Regular stitching
                         success = stitcher.auto_stitch(
@@ -1237,28 +1311,24 @@ class CardGeneratorMCPServer:
                             preset=preset
                         )
 
-                        result = {
-                            "status": "success" if success else "failed",
-                            "message": f"✅ Stitched cards to {output_path}" if success else "❌ Stitching failed",
-                            "output_path": output_path
-                        }
+                        if not success:
+                            error = self.create_error_response("Stitching failed")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
+
+                        result = self.create_success_response(
+                            f"Stitched cards to {output_path}",
+                            {
+                                "output_path": output_path,
+                                "tts_format": False
+                            }
+                        )
 
                     return [TextContent(
                         type="text",
                         text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Image stitching failed: {str(e)}"
-                        }, indent=2)
-                    )]
-
-            elif name == "full_workflow":
-                try:
+                elif name == "full_workflow":
                     import time
 
                     cards_data = arguments.get('cards', [])
@@ -1270,10 +1340,10 @@ class CardGeneratorMCPServer:
                     ai_api = arguments.get('ai_api', 'pollinations')
 
                     if not cards_data:
-                        raise ValueError("No cards provided")
+                        error = self.create_error_response("No cards provided")
+                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     workflow_results = {
-                        "status": "in_progress",
                         "steps": []
                     }
 
@@ -1313,11 +1383,16 @@ class CardGeneratorMCPServer:
 
                         for idx, card_data in enumerate(cards_data):
                             card_name = card_data.get('card_name', f'card_{idx}')
-                            prompt = generator.generate_card_art_prompt(card_data)
                             safe_name = "".join(c for c in card_name if c.isalnum() or c in (' ', '-', '_')).strip().replace(' ', '_')
                             output_path = os.path.join(art_dir, f"{safe_name}.png")
 
-                            success = generator.generate_and_save(prompt, output_path, 1024, 1024)
+                            try:
+                                prompt = generator.generate_card_art_prompt(card_data)
+                                success = generator.generate_and_save(prompt, output_path, 1024, 1024)
+                            except Exception as e:
+                                logger.warning(f"Failed to generate art for {card_name}: {e}")
+                                success = False
+
                             art_results.append({
                                 "card": card_name,
                                 "status": "success" if success else "failed",
@@ -1404,35 +1479,44 @@ class CardGeneratorMCPServer:
                                 "output": output_file if success else None
                             })
 
-                    workflow_results["status"] = "completed"
-                    workflow_results["message"] = f"✅ Full workflow completed! Generated {len(cards_data)} cards"
-                    workflow_results["output_base_dir"] = output_base_dir
+                    result = self.create_success_response(
+                        f"Full workflow completed! Generated {len(cards_data)} cards",
+                        {
+                            "output_base_dir": output_base_dir,
+                            "total_cards": len(cards_data),
+                            "steps": workflow_results["steps"]
+                        }
+                    )
 
                     return [TextContent(
                         type="text",
-                        text=json.dumps(workflow_results, indent=2, ensure_ascii=False)
+                        text=json.dumps(result, indent=2, ensure_ascii=False)
                     )]
 
-                except Exception as e:
+                else:
+                    error = self.create_error_response(f"Unknown tool: {name}")
                     return [TextContent(
                         type="text",
-                        text=json.dumps({
-                            "status": "error",
-                            "message": f"❌ Full workflow failed: {str(e)}"
-                        }, indent=2)
+                        text=json.dumps(error, indent=2)
                     )]
 
-            else:
+            except Exception as e:
+                # Global exception handler for unexpected errors
+                logger.exception(f"Unexpected error in tool {name}")
+                error = self.create_error_response(
+                    f"Tool execution failed: {str(e)}",
+                    {"tool": name}
+                )
                 return [TextContent(
                     type="text",
-                    text=json.dumps({
-                        "status": "error",
-                        "message": f"Unknown tool: {name}"
-                    }, indent=2)
+                    text=json.dumps(error, indent=2)
                 )]
 
     async def run(self):
         """Run the MCP server"""
+        logger.info(f"Starting {self.server_info['name']} v{self.server_info['version']}")
+        logger.info(f"Description: {self.server_info['description']}")
+
         async with stdio_server() as (read_stream, write_stream):
             await self.server.run(
                 read_stream,
@@ -1443,16 +1527,18 @@ class CardGeneratorMCPServer:
 
 def main():
     """Main entry point"""
-    print("🚀 Starting CardGener MCP Server...", file=sys.stderr)
-    print("📝 All operation parameters are AI-generated", file=sys.stderr)
+    logger.info("=" * 60)
+    logger.info(f"CardGener MCP Server v{__version__}")
+    logger.info("AI-powered card generation with CardConjurer integration")
+    logger.info("=" * 60)
 
     try:
         server = CardGeneratorMCPServer()
         asyncio.run(server.run())
     except KeyboardInterrupt:
-        print("\n⚠️ Server stopped by user", file=sys.stderr)
+        logger.warning("Server stopped by user")
     except Exception as e:
-        print(f"❌ Server error: {e}", file=sys.stderr)
+        logger.exception("Server error")
         sys.exit(1)
 
 

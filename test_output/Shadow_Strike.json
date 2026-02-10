@@ -31,7 +31,7 @@
                             "draggable"
                         ],
                         "name": "Art",
-                        "src": "images/shadow_strike.jpg",
+                        "src": "",
                         "z": -100,
                         "bounds": {
                             "x": 130,
@@ -112,7 +112,7 @@
                         "tags": [
                             "editable"
                         ],
-                        "text": "Deal 5 damage to target hero. If this attack hits, draw a card.",
+                        "text": "Deal 5 damage to target hero. If this hits, draw a card. Go again.",
                         "font": "palatino",
                         "size": 59,
                         "x": 180,
@@ -178,7 +178,7 @@
                         "tags": [
                             "editable"
                         ],
-                        "text": "John Doe © 2024 Legend Story Studios",
+                        "text": "Test Artist © 2024 Legend Story Studios",
                         "font": "montserrat",
                         "oneLine": true,
                         "verticalAlign": "center",
