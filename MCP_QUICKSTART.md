@@ -93,6 +93,8 @@ Other supported APIs:
 - `modelscope`: Requires MODELSCOPE_API_KEY
 - `modelscope_inference`: Requires MODELSCOPE_SDK_TOKEN
 
+You can pass `api_key`, `model`, and `poll_interval` to `generate_ai_artwork` when using paid providers (e.g., ModelScope inference) if the environment variables are not set.
+
 ## 📚 Documentation
 
 - **`MCP_IMPROVEMENTS.md`**: Detailed documentation of all improvements
@@ -133,6 +135,7 @@ Other supported APIs:
 3. **Use pollinations** for free, unlimited AI artwork
 4. **TTS format** creates perfect 10×7 grids for Tabletop Simulator
 5. **Batch generation** is faster than individual cards
+6. **Read cards via tools**: use `search_cards` + `read_card` instead of raw file reads to avoid noisy JSON dumps
 
 ## 🚨 Requirements
 

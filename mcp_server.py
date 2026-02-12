@@ -343,7 +343,7 @@ class CardGeneratorMCPServer:
                             resources.append(Resource(
                                 uri=f"card:///{json_file.stem}",
                                 name=card_info.get('card_name', json_file.stem),
-                                description=f"{card_info.get('card_type', 'Unknown')} - {card_info.get('class_type', 'unknown')} class",
+                                description=f"{card_info.get('card_type', 'Unknown')} - {card_info.get('class_type', 'unknown')} class (use read_card for details)",
                                 mimeType="application/json"
                             ))
                         except Exception as e:
@@ -561,7 +561,8 @@ class CardGeneratorMCPServer:
                     description=(
                         "Read and parse a card JSON file to extract simplified card information. "
                         "Returns readable card data with all the key fields (name, type, rules, stats, etc.) "
-                        "extracted from the complex JSON structure. Use this to view existing card details."
+                        "extracted from the complex JSON structure. Prefer this over raw file reads: provide "
+                        "card_name to auto-find the file (search_dir defaults to 'output') or pass file_path directly."
                     ),
                     inputSchema={
                         "type": "object",
@@ -569,9 +570,18 @@ class CardGeneratorMCPServer:
                             "file_path": {
                                 "type": "string",
                                 "description": "Path to the card JSON file to read"
+                            },
+                            "card_name": {
+                                "type": "string",
+                                "description": "Card name to locate when file_path is unknown"
+                            },
+                            "search_dir": {
+                                "type": "string",
+                                "description": "Directory to search when using card_name (default: output)",
+                                "default": "output"
                             }
                         },
-                        "required": ["file_path"]
+                        "required": []
                     }
                 ),
                 Tool(
@@ -579,7 +589,8 @@ class CardGeneratorMCPServer:
                     description=(
                         "Search for card JSON files using regex patterns. "
                         "Searches in specified directory (default: 'output') for card files matching the pattern. "
-                        "Returns list of matching cards with their simplified information. "
+                        "Returns list of matching cards with their simplified information. Use this first to find cards "
+                        "before calling read_card instead of raw file reads. "
                         "Pattern can match card names, types, rules text, or any field value."
                     ),
                     inputSchema={
@@ -662,6 +673,19 @@ class CardGeneratorMCPServer:
                                 "enum": ["pollinations", "huggingface", "modelscope", "modelscope_inference"],
                                 "default": "pollinations"
                             },
+                            "api_key": {
+                                "type": "string",
+                                "description": "API key/token for huggingface/modelscope services (optional if environment variables are set)"
+                            },
+                            "model": {
+                                "type": "string",
+                                "description": "Model identifier for the selected API (e.g., Qwen/Qwen-Image for modelscope_inference)"
+                            },
+                            "poll_interval": {
+                                "type": "integer",
+                                "description": "Polling interval (seconds) for async generators like modelscope_inference",
+                                "default": 5
+                            },
                             "width": {
                                 "type": "integer",
                                 "description": "Image width",
@@ -703,6 +727,11 @@ class CardGeneratorMCPServer:
                             "overlay_art_dir": {
                                 "type": "string",
                                 "description": "Optional directory with AI-generated art to overlay onto cards"
+                            },
+                            "timeout_seconds": {
+                                "type": "integer",
+                                "description": "Maximum seconds to wait before aborting rendering (prevents hanging calls)",
+                                "default": 300
                             }
                         },
                         "required": ["json_dir"]
@@ -1016,22 +1045,54 @@ class CardGeneratorMCPServer:
 
                 elif name == "read_card":
                     file_path = arguments.get('file_path')
-                    if not file_path:
-                        error = self.create_error_response("file_path is required")
+                    card_name = arguments.get('card_name')
+                    search_dir = arguments.get('search_dir', 'output')
+
+                    if not file_path and not card_name:
+                        error = self.create_error_response("Provide card_name to search or file_path to read directly")
                         return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
-                    # Check if file exists
-                    if not Path(file_path).exists():
-                        error = self.create_error_response(f"Card file not found: {file_path}")
-                        return [TextContent(type="text", text=json.dumps(error, indent=2))]
+                    resolved_path = None
+                    matched_files = []
+
+                    if file_path:
+                        resolved_path = Path(file_path)
+                        if not resolved_path.exists():
+                            error = self.create_error_response(f"Card file not found: {file_path}")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
+                    else:
+                        search_path = Path(search_dir)
+                        if not search_path.exists():
+                            error = self.create_error_response(f"Search directory not found: {search_dir}")
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
+
+                        target = card_name.lower()
+                        for json_file in search_path.glob("**/*.json"):
+                            stem = json_file.stem.lower()
+                            if stem == target:
+                                matched_files = [json_file]
+                                break
+                            if target in stem:
+                                matched_files.append(json_file)
+
+                        if not matched_files:
+                            error = self.create_error_response(
+                                f"Card not found by name: {card_name}",
+                                {"search_dir": search_dir}
+                            )
+                            return [TextContent(type="text", text=json.dumps(error, indent=2))]
+
+                        resolved_path = matched_files[0]
 
                     # Load card JSON
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(resolved_path, 'r', encoding='utf-8') as f:
                         card_data = json.load(f)
 
                     # Extract simplified card information
                     card_info = self.extract_card_fields(card_data)
-                    card_info['file_path'] = file_path
+                    card_info['file_path'] = str(resolved_path)
+                    if matched_files:
+                        card_info['matched_files'] = [str(p) for p in matched_files]
 
                     result = self.create_success_response(
                         f"Card read successfully: {card_info['card_name']}",
@@ -1153,6 +1214,9 @@ class CardGeneratorMCPServer:
                     cards_data = arguments.get('cards', [])
                     output_dir = arguments.get('output_dir', 'generated_art')
                     api_type = arguments.get('api_type', 'pollinations')
+                    api_key = arguments.get('api_key')
+                    api_model = arguments.get('model')
+                    poll_interval = arguments.get('poll_interval', 5)
                     width = arguments.get('width', 1024)
                     height = arguments.get('height', 1024)
 
@@ -1161,6 +1225,21 @@ class CardGeneratorMCPServer:
                         return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     generator = AIImageGenerator(api_type=api_type)
+                    if api_key:
+                        generator.api_key = api_key
+                    if api_model:
+                        generator.api_model = api_model
+                    if poll_interval is not None:
+                        generator.poll_interval = poll_interval
+
+                    if api_type == "modelscope_inference" and not (
+                        api_key or os.environ.get("MODELSCOPE_SDK_TOKEN") or os.environ.get("MODELSCOPE_API_KEY")
+                    ):
+                        error = self.create_error_response(
+                            "modelscope_inference requires api_key or MODELSCOPE_SDK_TOKEN/MODELSCOPE_API_KEY"
+                        )
+                        return [TextContent(type="text", text=json.dumps(error, indent=2, ensure_ascii=False))]
+
                     results = []
 
                     os.makedirs(output_dir, exist_ok=True)
@@ -1179,17 +1258,28 @@ class CardGeneratorMCPServer:
 
                         print(f"🎨 Generating art for: {card_name}", file=sys.stderr)
 
+                        error_detail = None
                         try:
-                            success = generator.generate_and_save(prompt, output_path, width, height)
+                            success = generator.generate_and_save(
+                                prompt,
+                                output_path,
+                                width,
+                                height,
+                                poll_interval=poll_interval
+                            )
                         except Exception as e:
                             logger.warning(f"Failed to generate art for {card_name}: {e}")
+                            error_detail = str(e)
                             success = False
+                        if not success and not error_detail:
+                            error_detail = "Image generation returned no data"
 
                         results.append({
                             "card_name": card_name,
                             "status": "success" if success else "failed",
                             "output_path": output_path if success else None,
-                            "prompt": prompt
+                            "prompt": prompt,
+                            "error": error_detail
                         })
 
                         if idx < len(cards_data) - 1:
@@ -1220,6 +1310,7 @@ class CardGeneratorMCPServer:
                     output_dir = arguments.get('output_dir', 'rendered_cards')
                     headless = arguments.get('headless', True)
                     overlay_art_dir = arguments.get('overlay_art_dir')
+                    timeout_seconds = arguments.get('timeout_seconds', 300)
 
                     if not json_dir:
                         error = self.create_error_response("json_dir is required")
@@ -1231,17 +1322,48 @@ class CardGeneratorMCPServer:
                         return [TextContent(type="text", text=json.dumps(error, indent=2))]
 
                     automation = CardConjurerAutomation(headless=headless, download_dir=output_dir)
-                    success_count = automation.batch_import_and_download([str(f) for f in json_files])
+                    try:
+                        render_task = asyncio.to_thread(
+                            automation.batch_import_and_download,
+                            [str(f) for f in json_files]
+                        )
+                        success_count = await asyncio.wait_for(render_task, timeout=timeout_seconds)
+                    except asyncio.TimeoutError:
+                        try:
+                            if getattr(automation, "driver", None):
+                                automation.driver.quit()
+                        except Exception:
+                            pass
+                        error = self.create_error_response(
+                            f"Rendering timed out after {timeout_seconds} seconds",
+                            {"json_dir": json_dir, "timeout_seconds": timeout_seconds}
+                        )
+                        return [TextContent(type="text", text=json.dumps(error, indent=2, ensure_ascii=False))]
+                    except Exception as e:
+                        try:
+                            if getattr(automation, "driver", None):
+                                automation.driver.quit()
+                        except Exception:
+                            pass
+                        error = self.create_error_response(
+                            "Rendering failed",
+                            {"error": str(e), "json_dir": json_dir}
+                        )
+                        return [TextContent(type="text", text=json.dumps(error, indent=2, ensure_ascii=False))]
 
                     # Overlay art if provided
                     overlay_count = 0
+                    overlay_error = None
                     if overlay_art_dir and Path(overlay_art_dir).exists():
-                        overlay_count = automation.overlay_generated_art(
-                            overlay_art_dir,
-                            source_dir=output_dir,
-                            json_dir=json_dir,
-                            inplace=True
-                        )
+                        try:
+                            overlay_count = automation.overlay_generated_art(
+                                overlay_art_dir,
+                                source_dir=output_dir,
+                                json_dir=json_dir,
+                                inplace=True
+                            )
+                        except Exception as e:
+                            overlay_error = str(e)
 
                     result = self.create_success_response(
                         f"Rendered {success_count}/{len(json_files)} cards",
@@ -1249,7 +1371,9 @@ class CardGeneratorMCPServer:
                             "rendered_count": success_count,
                             "total_files": len(json_files),
                             "overlay_count": overlay_count,
-                            "output_dir": output_dir
+                            "overlay_error": overlay_error,
+                            "output_dir": output_dir,
+                            "timeout_seconds": timeout_seconds
                         }
                     )
 
